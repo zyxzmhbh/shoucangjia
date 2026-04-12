@@ -14,6 +14,7 @@ let selectionState = null;
 let observer = null;
 let highlightDebounceTimer = null;
 let selectionSyncTimer = null;
+let selectionPollTimer = null;
 
 let saveSettingsDebounced = null;
 let extension_settings = null;
@@ -74,7 +75,7 @@ function getChatElements() {
 }
 
 function getSessionInfo(ctx = getContext()) {
-  const characterName = ctx?.name2 || "未知角色";
+  const characterName = ctx?.name2 || "unknown-character";
   const chatMeta = ctx?.chatMetadata || {};
   const chatId = chatMeta.main_chat || chatMeta.chat_id || chatMeta.file_name || ctx?.chatId || "unknown-chat";
   const groupId = ctx?.groupId ?? null;
@@ -100,15 +101,15 @@ function mountSettingsEntry() {
   const container = document.getElementById("extensions_settings2");
   if (!container || document.getElementById(SETTINGS_BLOCK_ID)) return;
 
-  const block = document.createElement("details");
+  const block = document.createElement("div");
   block.id = SETTINGS_BLOCK_ID;
   block.className = "inline-drawer scj-drawer";
   block.innerHTML = `
-    <summary class="inline-drawer-toggle">
-      <b>收藏夹</b>
+    <div class="inline-drawer-toggle scj-drawer-toggle" data-action="toggle">
+      <b class="scj-drawer-title">收藏夹</b>
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
-    </summary>
-    <div class="inline-drawer-content">
+    </div>
+    <div class="inline-drawer-content scj-collapsed">
       <div class="scj-panel-header">
         <div class="scj-header-actions">
           <button type="button" class="menu_button scj-export-btn">导出</button>
@@ -131,6 +132,16 @@ function mountSettingsEntry() {
     </div>
   `;
 
+  block.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const action = target.dataset.action;
+    if (action === "toggle") {
+      toggleDrawer(block);
+      return;
+    }
+  });
+
   block.querySelector(".scj-export-btn")?.addEventListener("click", exportFavorites);
   block.querySelector(".scj-import-btn")?.addEventListener("click", () => {
     block.querySelector(`#${IMPORT_INPUT_ID}`)?.click();
@@ -141,11 +152,25 @@ function mountSettingsEntry() {
     el.addEventListener("change", renderFavorites);
   });
   block.querySelector(".scj-list")?.addEventListener("click", onListAction);
-  block.addEventListener("toggle", () => {
-    if (block.open) renderFavorites();
-  });
 
   container.prepend(block);
+}
+
+function toggleDrawer(block) {
+  const content = block.querySelector(".inline-drawer-content");
+  const icon = block.querySelector(".inline-drawer-icon");
+  if (!content || !icon) return;
+  const collapsed = content.classList.contains("scj-collapsed");
+  if (collapsed) {
+    content.classList.remove("scj-collapsed");
+    icon.classList.remove("down");
+    icon.classList.add("up");
+    renderFavorites();
+  } else {
+    content.classList.add("scj-collapsed");
+    icon.classList.remove("up");
+    icon.classList.add("down");
+  }
 }
 
 function renderFavorites() {
@@ -288,24 +313,22 @@ function bindSelectionEvents() {
   document.addEventListener("mouseup", scheduleSelectionRefresh);
   document.addEventListener("touchend", scheduleSelectionRefresh, { passive: true });
   document.addEventListener("keyup", scheduleSelectionRefresh);
-  document.addEventListener("scroll", () => {
-    if (!hasSelectionState()) hideSelectionBubble();
-  }, true);
-  if (!IS_TOUCH) {
-    document.addEventListener("mousedown", () => {
-      if (!hasSelectionState()) hideSelectionBubble();
-    });
-  }
+  document.addEventListener("scroll", scheduleSelectionRefresh, true);
+  selectionPollTimer = window.setInterval(() => refreshSelectionState(true), 700);
 }
 
 function scheduleSelectionRefresh() {
   clearTimeout(selectionSyncTimer);
-  selectionSyncTimer = setTimeout(refreshSelectionState, IS_TOUCH ? 120 : 10);
+  selectionSyncTimer = setTimeout(() => refreshSelectionState(false), IS_TOUCH ? 120 : 10);
 }
 
-function refreshSelectionState() {
+function refreshSelectionState(fromPoll) {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    if (!fromPoll) {
+      selectionState = null;
+      hideSelectionBubble();
+    }
     return;
   }
 
@@ -313,9 +336,7 @@ function refreshSelectionState() {
   if (!text) return;
 
   const range = selection.getRangeAt(0);
-  const anchorNode = selection.anchorNode;
-  const anchorEl = anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement;
-  const mesEl = anchorEl?.closest?.(".mes");
+  const mesEl = findMessageElement(selection, range);
   const chatRoot = document.getElementById("chat");
   if (!mesEl || !chatRoot?.contains(mesEl)) return;
 
@@ -326,8 +347,35 @@ function refreshSelectionState() {
   showSelectionBubble(range.getBoundingClientRect());
 }
 
-function hasSelectionState() {
-  return Boolean(selectionState?.text);
+function findMessageElement(selection, range) {
+  const candidates = [];
+  const pushNode = (node) => {
+    if (!node) return;
+    if (node instanceof Element) {
+      candidates.push(node);
+    } else if (node.parentElement) {
+      candidates.push(node.parentElement);
+    }
+  };
+
+  pushNode(selection.anchorNode);
+  pushNode(selection.focusNode);
+  pushNode(range.commonAncestorContainer);
+
+  for (const c of candidates) {
+    const mes = c.closest?.(".mes");
+    if (mes) return mes;
+  }
+
+  const all = getChatElements();
+  for (const mes of all) {
+    try {
+      if (range.intersectsNode(mes)) return mes;
+    } catch {
+      // continue
+    }
+  }
+  return null;
 }
 
 function getMessageIndexFromElement(mesEl) {
@@ -346,7 +394,7 @@ function showSelectionBubble(rect) {
     bubble.classList.add("scj-touch-anchor");
     bubble.style.top = "auto";
     bubble.style.left = "50%";
-    bubble.style.bottom = "90px";
+    bubble.style.bottom = "110px";
   } else {
     bubble.classList.remove("scj-touch-anchor");
     bubble.style.bottom = "auto";
@@ -375,9 +423,9 @@ function onBubbleClick(event) {
 }
 
 function saveCurrentSelection(shouldHighlight) {
-  if (!hasSelectionState()) {
-    refreshSelectionState();
-    if (!hasSelectionState()) {
+  if (!selectionState?.text) {
+    refreshSelectionState(false);
+    if (!selectionState?.text) {
       alert("请先在聊天里选中文本。");
       return;
     }
@@ -535,7 +583,7 @@ function exportFavorites() {
   const data = {
     module: MODULE_NAME,
     exportedAt: new Date().toISOString(),
-    version: 4,
+    version: 5,
     payload: getSettings(),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });

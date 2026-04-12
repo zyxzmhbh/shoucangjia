@@ -47,13 +47,13 @@ function getChatElements() {
 }
 
 function getSessionInfo(ctx = getContext()) {
-  const characterName = ctx?.name2 || "未知角色";
+  const characterName = ctx?.name2 || "Unknown Character";
   const chatMeta = ctx?.chatMetadata || {};
   const chatId = chatMeta.main_chat || chatMeta.chat_id || chatMeta.file_name || ctx?.chatId || "unknown-chat";
   const groupId = ctx?.groupId ?? null;
   const characterId = ctx?.characterId ?? null;
   const chatKey = JSON.stringify({ characterName, characterId, groupId, chatId });
-  const chatLabel = groupId ? `${characterName} (群聊:${groupId})` : `${characterName} (${chatId})`;
+  const chatLabel = groupId ? `${characterName} (group:${groupId})` : `${characterName} (${chatId})`;
 
   return {
     characterName,
@@ -70,8 +70,8 @@ function mountUI() {
     const fab = document.createElement("button");
     fab.id = FAB_ID;
     fab.type = "button";
-    fab.textContent = "收藏夹";
-    fab.title = "打开收藏夹";
+    fab.textContent = "Favorites";
+    fab.title = "Open Favorites";
     fab.addEventListener("click", openPanel);
     document.body.appendChild(fab);
   }
@@ -101,20 +101,20 @@ function panelTemplate() {
     <div class="scj-panel-mask"></div>
     <div class="scj-panel-card">
       <div class="scj-panel-header">
-        <h3>好词好句收藏夹</h3>
+        <h3>Favorites Notebook</h3>
         <div class="scj-header-actions">
-          <button type="button" class="menu_button scj-export-btn">导出</button>
-          <button type="button" class="menu_button scj-import-btn">导入</button>
-          <button type="button" class="menu_button scj-close-btn">关闭</button>
+          <button type="button" class="menu_button scj-export-btn">Export</button>
+          <button type="button" class="menu_button scj-import-btn">Import</button>
+          <button type="button" class="menu_button scj-close-btn">Close</button>
         </div>
       </div>
       <div class="scj-filters">
-        <input class="text_pole scj-filter" data-filter="character" placeholder="按角色名筛选" />
-        <input class="text_pole scj-filter" data-filter="session" placeholder="按会话ID筛选" />
-        <input class="text_pole scj-filter" data-filter="note" placeholder="按备注筛选" />
+        <input class="text_pole scj-filter" data-filter="character" placeholder="Filter by character" />
+        <input class="text_pole scj-filter" data-filter="session" placeholder="Filter by chat/session ID" />
+        <input class="text_pole scj-filter" data-filter="note" placeholder="Filter by note" />
         <select class="text_pole scj-filter" data-filter="sort">
-          <option value="desc">时间：最新在前</option>
-          <option value="asc">时间：最早在前</option>
+          <option value="desc">Time: newest first</option>
+          <option value="asc">Time: oldest first</option>
         </select>
       </div>
       <div class="scj-list"></div>
@@ -161,11 +161,11 @@ function renderFavorites() {
     });
 
   if (!filtered.length) {
-    list.innerHTML = `<div class="scj-empty">暂无收藏。选中文本后点击“收藏”即可添加。</div>`;
+    list.innerHTML = `<div class="scj-empty">No favorites yet. Select text in chat and click Save.</div>`;
     return;
   }
 
-  const byCharacter = groupBy(filtered, (it) => it.session?.characterName || "未知角色");
+  const byCharacter = groupBy(filtered, (it) => it.session?.characterName || "Unknown Character");
   const sections = Object.entries(byCharacter).map(([characterName, items]) => {
     const cards = items.map(renderCard).join("");
     return `
@@ -181,27 +181,27 @@ function renderFavorites() {
 
 function renderCard(item) {
   const quote = ellipsis(item.selection?.text || "", 140);
-  const note = item.note ? `<div class="scj-note">备注：${escapeHtml(item.note)}</div>` : "";
+  const note = item.note ? `<div class="scj-note">Note: ${escapeHtml(item.note)}</div>` : "";
   const createdAt = formatDate(item.createdAt);
   const chatId = escapeHtml(item.session?.chatId || "unknown-chat");
-  const charName = escapeHtml(item.session?.characterName || "未知角色");
+  const charName = escapeHtml(item.session?.characterName || "Unknown Character");
   const contextHtml = renderContext(item.snapshot?.contextMessages || []);
   const charSnapshot = escapeHtml(JSON.stringify(item.snapshot?.characterCard || {}, null, 2));
 
   return `
     <article class="scj-card" data-id="${escapeHtml(item.id)}">
-      <div class="scj-meta">${charName} | ${createdAt} | 会话: ${chatId}</div>
+      <div class="scj-meta">${charName} | ${createdAt} | Chat: ${chatId}</div>
       <blockquote>${escapeHtml(quote)}</blockquote>
       ${note}
       <div class="scj-actions">
-        <button type="button" class="menu_button" data-action="toggle">查看快照</button>
-        <button type="button" class="menu_button menu_button_danger" data-action="delete">删除</button>
+        <button type="button" class="menu_button" data-action="toggle">View Snapshot</button>
+        <button type="button" class="menu_button menu_button_danger" data-action="delete">Delete</button>
       </div>
       <details class="scj-details">
-        <summary>上下文与角色快照</summary>
-        <div class="scj-subtitle">上下 5 条聊天记录</div>
+        <summary>Context + Character Snapshot</summary>
+        <div class="scj-subtitle">Nearby chat lines (5 above / 5 below)</div>
         <div class="scj-context">${contextHtml}</div>
-        <div class="scj-subtitle">收藏时角色信息快照</div>
+        <div class="scj-subtitle">Character card snapshot at save time</div>
         <pre>${charSnapshot}</pre>
       </details>
     </article>
@@ -209,10 +209,10 @@ function renderCard(item) {
 }
 
 function renderContext(messages) {
-  if (!messages.length) return `<div class="scj-empty-context">没有上下文快照</div>`;
+  if (!messages.length) return `<div class="scj-empty-context">No context snapshot</div>`;
   return messages
     .map((m) => {
-      const name = escapeHtml(m.name || (m.is_user ? "你" : "角色"));
+      const name = escapeHtml(m.name || (m.is_user ? "You" : "Character"));
       const text = escapeHtml(m.mes || "");
       return `<div class="scj-context-row"><b>${name}</b>: ${text}</div>`;
     })
@@ -230,7 +230,7 @@ function onListAction(event) {
   if (!id) return;
 
   if (action === "delete") {
-    if (!confirm("确认删除这条收藏吗？")) return;
+    if (!confirm("Delete this favorite?")) return;
     const settings = getSettings();
     settings.favorites = settings.favorites.filter((it) => it.id !== id);
     for (const key of Object.keys(settings.highlightsByChatKey)) {
@@ -284,12 +284,7 @@ function onSelectionMaybeChanged() {
       return;
     }
 
-    selectionState = {
-      text,
-      range,
-      messageIndex,
-    };
-
+    selectionState = { text, range, messageIndex };
     showSelectionBubble(range.getBoundingClientRect());
   }, 0);
 }
@@ -314,9 +309,9 @@ function showSelectionBubble(rect) {
     bubble = document.createElement("div");
     bubble.id = BUBBLE_ID;
     bubble.innerHTML = `
-      <button type="button" class="menu_button" data-action="fav">收藏</button>
-      <button type="button" class="menu_button" data-action="highlight">高亮并收藏</button>
-      <button type="button" class="menu_button" data-action="cancel">取消</button>
+      <button type="button" class="menu_button" data-action="fav">Save</button>
+      <button type="button" class="menu_button" data-action="highlight">Highlight + Save</button>
+      <button type="button" class="menu_button" data-action="cancel">Cancel</button>
     `;
     bubble.addEventListener("click", onBubbleClick);
     document.body.appendChild(bubble);
@@ -352,7 +347,7 @@ function onBubbleClick(event) {
 
 function saveCurrentSelection(shouldHighlight) {
   if (!selectionState) return;
-  const note = prompt("给这条收藏写个备注（可留空）", "") ?? "";
+  const note = prompt("Add a note for this favorite (optional):", "") ?? "";
   const ctx = getContext();
   const chat = Array.isArray(ctx?.chat) ? ctx.chat : [];
   const idx = clamp(selectionState.messageIndex, 0, Math.max(0, chat.length - 1));
@@ -405,7 +400,7 @@ function snapshotCharacterCard(ctx) {
   const card = Number.isInteger(characterId) && Array.isArray(ctx?.characters) ? ctx.characters[characterId] : null;
   if (!card) {
     return {
-      name: ctx?.name2 || "未知角色",
+      name: ctx?.name2 || "Unknown Character",
       fallback: true,
     };
   }
@@ -469,17 +464,13 @@ function markFirstTextOccurrence(root, text, favoriteId) {
     const content = node.textContent || "";
     const at = content.indexOf(query);
     if (at < 0) continue;
-    const before = node;
-    const middle = before.splitText(at);
-    const after = middle.splitText(query.length);
+    const middle = node.splitText(at);
+    middle.splitText(query.length);
     const mark = document.createElement("span");
     mark.className = "scj-highlight";
     mark.setAttribute("data-favorite-id", favoriteId);
     mark.textContent = middle.textContent;
     middle.parentNode?.replaceChild(mark, middle);
-    if (after && after.parentNode) {
-      return true;
-    }
     return true;
   }
   return false;
@@ -510,7 +501,7 @@ function importFavorites(event) {
       const parsed = JSON.parse(String(reader.result || "{}"));
       const incoming = parsed?.payload;
       if (!incoming || typeof incoming !== "object") throw new Error("invalid payload");
-      if (!confirm("导入将覆盖当前收藏数据，是否继续？")) return;
+      if (!confirm("Import will overwrite current favorites. Continue?")) return;
       extension_settings[MODULE_NAME] = {
         favorites: Array.isArray(incoming.favorites) ? incoming.favorites : [],
         highlightsByChatKey:
@@ -522,8 +513,8 @@ function importFavorites(event) {
       applyHighlightsDebounced();
       renderFavorites();
     } catch (error) {
-      console.error(`[${MODULE_NAME}] 导入失败`, error);
-      alert("导入失败：文件格式不正确");
+      console.error(`[${MODULE_NAME}] import failed`, error);
+      alert("Import failed: invalid file format.");
     } finally {
       input.value = "";
     }
@@ -546,7 +537,7 @@ function clamp(n, min, max) {
 
 function ellipsis(text, maxLen) {
   if (text.length <= maxLen) return text;
-  return `${text.slice(0, maxLen - 1)}…`;
+  return `${text.slice(0, maxLen - 3)}...`;
 }
 
 function formatDate(iso) {

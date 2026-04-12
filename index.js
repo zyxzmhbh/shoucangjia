@@ -1,9 +1,7 @@
 const MODULE_NAME = "shoucangjia";
-const PANEL_ID = "scj-panel";
-const BUBBLE_ID = "scj-selection-bubble";
-const IMPORT_INPUT_ID = "scj-import-input";
 const SETTINGS_BLOCK_ID = "scj-settings-block";
-const MOBILE_SAVE_ID = "scj-mobile-save";
+const IMPORT_INPUT_ID = "scj-import-input";
+const BUBBLE_ID = "scj-selection-bubble";
 
 const DEFAULT_SETTINGS = {
   favorites: [],
@@ -27,7 +25,7 @@ async function importAny(paths) {
       // eslint-disable-next-line no-await-in-loop
       return await import(p);
     } catch {
-      // continue
+      // try next path
     }
   }
   throw new Error(`Cannot import module from paths: ${paths.join(", ")}`);
@@ -36,21 +34,18 @@ async function importAny(paths) {
 async function bootstrap() {
   const scriptModule = await importAny(["/script.js", "../../../../script.js", "../../../script.js"]);
   const extModule = await importAny(["/scripts/extensions.js", "../../../extensions.js", "../../extensions.js"]);
-
   saveSettingsDebounced = scriptModule.saveSettingsDebounced;
   extension_settings = extModule.extension_settings;
   getContext = extModule.getContext;
-
   if (!saveSettingsDebounced || !extension_settings || !getContext) {
     throw new Error("SillyTavern APIs missing.");
   }
-
   init();
 }
 
 function init() {
   initSettings();
-  mountUI();
+  mountSelectionBubble();
   mountSettingsEntry();
   bindSelectionEvents();
   observeChatDom();
@@ -88,80 +83,36 @@ function getSessionInfo(ctx = getContext()) {
   return { characterName, characterId, groupId, chatId, chatKey };
 }
 
-function mountUI() {
-  if (!document.getElementById(PANEL_ID)) {
-    const panel = document.createElement("div");
-    panel.id = PANEL_ID;
-    panel.innerHTML = panelTemplate();
-    document.body.appendChild(panel);
-
-    panel.querySelector(".scj-close-btn")?.addEventListener("click", closePanel);
-    panel.querySelector(".scj-export-btn")?.addEventListener("click", exportFavorites);
-    panel.querySelector(".scj-import-btn")?.addEventListener("click", () => {
-      panel.querySelector(`#${IMPORT_INPUT_ID}`)?.click();
-    });
-    panel.querySelector(`#${IMPORT_INPUT_ID}`)?.addEventListener("change", importFavorites);
-    panel.querySelectorAll(".scj-filter").forEach((el) => {
-      el.addEventListener("input", renderFavorites);
-      el.addEventListener("change", renderFavorites);
-    });
-    panel.querySelector(".scj-list")?.addEventListener("click", onListAction);
-  }
-
-  if (!document.getElementById(MOBILE_SAVE_ID)) {
-    const btn = document.createElement("button");
-    btn.id = MOBILE_SAVE_ID;
-    btn.type = "button";
-    btn.textContent = "收藏选中";
-    btn.title = "收藏当前选中的文本";
-    btn.addEventListener("click", () => saveCurrentSelection(false));
-    document.body.appendChild(btn);
-  }
+function mountSelectionBubble() {
+  if (document.getElementById(BUBBLE_ID)) return;
+  const bubble = document.createElement("div");
+  bubble.id = BUBBLE_ID;
+  bubble.innerHTML = `
+    <button type="button" class="menu_button" data-action="fav">收藏</button>
+    <button type="button" class="menu_button" data-action="highlight">高亮并收藏</button>
+    <button type="button" class="menu_button" data-action="cancel">取消</button>
+  `;
+  bubble.addEventListener("click", onBubbleClick);
+  document.body.appendChild(bubble);
 }
 
 function mountSettingsEntry() {
   const container = document.getElementById("extensions_settings2");
   if (!container || document.getElementById(SETTINGS_BLOCK_ID)) return;
 
-  const block = document.createElement("div");
+  const block = document.createElement("details");
   block.id = SETTINGS_BLOCK_ID;
-  block.className = "scj-settings-entry";
+  block.className = "inline-drawer scj-drawer";
   block.innerHTML = `
-    <div class="scj-settings-title">收藏夹</div>
-    <div class="scj-settings-actions">
-      <button type="button" class="menu_button" data-action="open">打开收藏夹</button>
-      <button type="button" class="menu_button" data-action="save">收藏选中</button>
-      <button type="button" class="menu_button" data-action="save-highlight">高亮并收藏</button>
-    </div>
-    <div class="scj-settings-hint">提示：手机长按选中文本后，页面底部会出现“收藏选中”。</div>
-  `;
-  block.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    const action = target.dataset.action;
-    if (action === "open") openPanel();
-    if (action === "save") {
-      refreshSelectionState();
-      saveCurrentSelection(false);
-    }
-    if (action === "save-highlight") {
-      refreshSelectionState();
-      saveCurrentSelection(true);
-    }
-  });
-  container.prepend(block);
-}
-
-function panelTemplate() {
-  return `
-    <div class="scj-panel-mask"></div>
-    <div class="scj-panel-card">
+    <summary class="inline-drawer-toggle">
+      <b>收藏夹</b>
+      <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+    </summary>
+    <div class="inline-drawer-content">
       <div class="scj-panel-header">
-        <h3>收藏夹</h3>
         <div class="scj-header-actions">
           <button type="button" class="menu_button scj-export-btn">导出</button>
           <button type="button" class="menu_button scj-import-btn">导入</button>
-          <button type="button" class="menu_button scj-close-btn">关闭</button>
         </div>
       </div>
       <div class="scj-filters">
@@ -179,31 +130,36 @@ function panelTemplate() {
       <input id="${IMPORT_INPUT_ID}" type="file" accept="application/json" hidden />
     </div>
   `;
-}
 
-function openPanel() {
-  const panel = document.getElementById(PANEL_ID);
-  if (!panel) return;
-  panel.classList.add("scj-open");
-  renderFavorites();
-}
+  block.querySelector(".scj-export-btn")?.addEventListener("click", exportFavorites);
+  block.querySelector(".scj-import-btn")?.addEventListener("click", () => {
+    block.querySelector(`#${IMPORT_INPUT_ID}`)?.click();
+  });
+  block.querySelector(`#${IMPORT_INPUT_ID}`)?.addEventListener("change", importFavorites);
+  block.querySelectorAll(".scj-filter").forEach((el) => {
+    el.addEventListener("input", renderFavorites);
+    el.addEventListener("change", renderFavorites);
+  });
+  block.querySelector(".scj-list")?.addEventListener("click", onListAction);
+  block.addEventListener("toggle", () => {
+    if (block.open) renderFavorites();
+  });
 
-function closePanel() {
-  document.getElementById(PANEL_ID)?.classList.remove("scj-open");
+  container.prepend(block);
 }
 
 function renderFavorites() {
-  const panel = document.getElementById(PANEL_ID);
-  if (!panel) return;
-  const list = panel.querySelector(".scj-list");
+  const block = document.getElementById(SETTINGS_BLOCK_ID);
+  if (!block) return;
+  const list = block.querySelector(".scj-list");
   if (!list) return;
 
-  const characterFilter = (panel.querySelector('[data-filter="character"]')?.value || "").trim().toLowerCase();
-  const sessionFilter = (panel.querySelector('[data-filter="session"]')?.value || "").trim().toLowerCase();
-  const noteFilter = (panel.querySelector('[data-filter="note"]')?.value || "").trim().toLowerCase();
-  const tagsFilter = (panel.querySelector('[data-filter="tags"]')?.value || "").trim().toLowerCase();
-  const fullTextFilter = (panel.querySelector('[data-filter="search"]')?.value || "").trim().toLowerCase();
-  const sort = panel.querySelector('[data-filter="sort"]')?.value || "desc";
+  const characterFilter = (block.querySelector('[data-filter="character"]')?.value || "").trim().toLowerCase();
+  const sessionFilter = (block.querySelector('[data-filter="session"]')?.value || "").trim().toLowerCase();
+  const noteFilter = (block.querySelector('[data-filter="note"]')?.value || "").trim().toLowerCase();
+  const tagsFilter = (block.querySelector('[data-filter="tags"]')?.value || "").trim().toLowerCase();
+  const fullTextFilter = (block.querySelector('[data-filter="search"]')?.value || "").trim().toLowerCase();
+  const sort = block.querySelector('[data-filter="sort"]')?.value || "desc";
 
   const filtered = getSettings().favorites
     .filter((item) => {
@@ -236,17 +192,17 @@ function renderFavorites() {
   }
 
   const byCharacter = groupBy(filtered, (it) => it.session?.characterName || "未知角色");
-  const sections = Object.entries(byCharacter).map(([characterName, items]) => {
-    const cards = items.map(renderCard).join("");
-    return `
-      <section class="scj-character-group">
-        <h4>${escapeHtml(characterName)} <small>(${items.length})</small></h4>
-        ${cards}
-      </section>
-    `;
-  });
-
-  list.innerHTML = sections.join("");
+  list.innerHTML = Object.entries(byCharacter)
+    .map(([characterName, items]) => {
+      const cards = items.map(renderCard).join("");
+      return `
+        <section class="scj-character-group">
+          <h4>${escapeHtml(characterName)} <small>(${items.length})</small></h4>
+          ${cards}
+        </section>
+      `;
+    })
+    .join("");
 }
 
 function renderCard(item) {
@@ -331,11 +287,14 @@ function bindSelectionEvents() {
   document.addEventListener("selectionchange", scheduleSelectionRefresh);
   document.addEventListener("mouseup", scheduleSelectionRefresh);
   document.addEventListener("touchend", scheduleSelectionRefresh, { passive: true });
+  document.addEventListener("keyup", scheduleSelectionRefresh);
   document.addEventListener("scroll", () => {
-    if (!selectionState) hideSelectionBubble();
+    if (!hasSelectionState()) hideSelectionBubble();
   }, true);
   if (!IS_TOUCH) {
-    document.addEventListener("mousedown", hideSelectionBubble);
+    document.addEventListener("mousedown", () => {
+      if (!hasSelectionState()) hideSelectionBubble();
+    });
   }
 }
 
@@ -347,49 +306,28 @@ function scheduleSelectionRefresh() {
 function refreshSelectionState() {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    selectionState = null;
-    hideSelectionBubble();
-    hideMobileSave();
     return;
   }
 
   const text = selection.toString().trim();
-  if (!text) {
-    selectionState = null;
-    hideSelectionBubble();
-    hideMobileSave();
-    return;
-  }
+  if (!text) return;
 
   const range = selection.getRangeAt(0);
   const anchorNode = selection.anchorNode;
   const anchorEl = anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement;
   const mesEl = anchorEl?.closest?.(".mes");
   const chatRoot = document.getElementById("chat");
-  if (!mesEl || !chatRoot?.contains(mesEl)) {
-    selectionState = null;
-    hideSelectionBubble();
-    hideMobileSave();
-    return;
-  }
+  if (!mesEl || !chatRoot?.contains(mesEl)) return;
 
   const messageIndex = getMessageIndexFromElement(mesEl);
-  if (messageIndex < 0) {
-    selectionState = null;
-    hideSelectionBubble();
-    hideMobileSave();
-    return;
-  }
+  if (messageIndex < 0) return;
 
   selectionState = { text, range, messageIndex };
+  showSelectionBubble(range.getBoundingClientRect());
+}
 
-  if (IS_TOUCH) {
-    showMobileSave();
-    hideSelectionBubble();
-  } else {
-    showSelectionBubble(range.getBoundingClientRect());
-    hideMobileSave();
-  }
+function hasSelectionState() {
+  return Boolean(selectionState?.text);
 }
 
 function getMessageIndexFromElement(mesEl) {
@@ -402,21 +340,19 @@ function getMessageIndexFromElement(mesEl) {
 }
 
 function showSelectionBubble(rect) {
-  let bubble = document.getElementById(BUBBLE_ID);
-  if (!bubble) {
-    bubble = document.createElement("div");
-    bubble.id = BUBBLE_ID;
-    bubble.innerHTML = `
-      <button type="button" class="menu_button" data-action="fav">收藏</button>
-      <button type="button" class="menu_button" data-action="highlight">高亮并收藏</button>
-      <button type="button" class="menu_button" data-action="cancel">取消</button>
-    `;
-    bubble.addEventListener("click", onBubbleClick);
-    document.body.appendChild(bubble);
+  const bubble = document.getElementById(BUBBLE_ID);
+  if (!bubble) return;
+  if (IS_TOUCH) {
+    bubble.classList.add("scj-touch-anchor");
+    bubble.style.top = "auto";
+    bubble.style.left = "50%";
+    bubble.style.bottom = "90px";
+  } else {
+    bubble.classList.remove("scj-touch-anchor");
+    bubble.style.bottom = "auto";
+    bubble.style.top = `${Math.max(8, rect.top - 44)}px`;
+    bubble.style.left = `${Math.max(8, rect.left)}px`;
   }
-
-  bubble.style.top = `${Math.max(8, rect.top - 44)}px`;
-  bubble.style.left = `${Math.max(8, rect.left)}px`;
   bubble.classList.add("scj-show");
 }
 
@@ -424,29 +360,25 @@ function hideSelectionBubble() {
   document.getElementById(BUBBLE_ID)?.classList.remove("scj-show");
 }
 
-function showMobileSave() {
-  document.getElementById(MOBILE_SAVE_ID)?.classList.add("scj-show");
-}
-
-function hideMobileSave() {
-  document.getElementById(MOBILE_SAVE_ID)?.classList.remove("scj-show");
-}
-
 function onBubbleClick(event) {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
   const action = target.dataset.action;
   if (!action) return;
-  if (action === "cancel") return hideSelectionBubble();
+  if (action === "cancel") {
+    selectionState = null;
+    hideSelectionBubble();
+    return;
+  }
   if (action === "fav") saveCurrentSelection(false);
   if (action === "highlight") saveCurrentSelection(true);
 }
 
 function saveCurrentSelection(shouldHighlight) {
-  if (!selectionState) {
+  if (!hasSelectionState()) {
     refreshSelectionState();
-    if (!selectionState) {
-      alert("请先在聊天消息里选中文本。");
+    if (!hasSelectionState()) {
+      alert("请先在聊天里选中文本。");
       return;
     }
   }
@@ -500,8 +432,8 @@ function saveCurrentSelection(shouldHighlight) {
   saveSettingsDebounced();
   applyHighlightsDebounced();
   renderFavorites();
+  selectionState = null;
   hideSelectionBubble();
-  hideMobileSave();
 }
 
 function jumpToOriginalMessage(favoriteId) {
@@ -528,9 +460,7 @@ function parseTags(input) {
 function snapshotCharacterCard(ctx) {
   const characterId = ctx?.characterId;
   const card = Number.isInteger(characterId) && Array.isArray(ctx?.characters) ? ctx.characters[characterId] : null;
-  if (!card) {
-    return { name: ctx?.name2 || "未知角色", fallback: true };
-  }
+  if (!card) return { name: ctx?.name2 || "未知角色", fallback: true };
   return {
     name: card.name ?? null,
     avatar: card.avatar ?? null,
@@ -605,7 +535,7 @@ function exportFavorites() {
   const data = {
     module: MODULE_NAME,
     exportedAt: new Date().toISOString(),
-    version: 3,
+    version: 4,
     payload: getSettings(),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });

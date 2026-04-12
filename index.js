@@ -1,6 +1,3 @@
-import { saveSettingsDebounced } from "../../../script.js";
-import { extension_settings, getContext } from "../../extensions.js";
-
 const MODULE_NAME = "shoucangjia";
 const PANEL_ID = "scj-panel";
 const FAB_ID = "scj-fab";
@@ -15,6 +12,37 @@ const DEFAULT_SETTINGS = {
 let selectionState = null;
 let observer = null;
 let highlightDebounceTimer = null;
+
+let saveSettingsDebounced = null;
+let extension_settings = null;
+let getContext = null;
+
+async function importAny(paths) {
+  for (const p of paths) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      return await import(p);
+    } catch {
+      // keep trying next path
+    }
+  }
+  throw new Error(`Cannot import module from any path: ${paths.join(", ")}`);
+}
+
+async function bootstrap() {
+  const scriptModule = await importAny(["/script.js", "../../../../script.js", "../../../script.js"]);
+  const extModule = await importAny(["/scripts/extensions.js", "../../../extensions.js", "../../extensions.js"]);
+
+  saveSettingsDebounced = scriptModule.saveSettingsDebounced;
+  extension_settings = extModule.extension_settings;
+  getContext = extModule.getContext;
+
+  if (!saveSettingsDebounced || !extension_settings || !getContext) {
+    throw new Error("SillyTavern APIs missing: saveSettingsDebounced/extension_settings/getContext");
+  }
+
+  init();
+}
 
 function init() {
   initSettings();
@@ -112,6 +140,8 @@ function panelTemplate() {
         <input class="text_pole scj-filter" data-filter="character" placeholder="Filter by character" />
         <input class="text_pole scj-filter" data-filter="session" placeholder="Filter by chat/session ID" />
         <input class="text_pole scj-filter" data-filter="note" placeholder="Filter by note" />
+        <input class="text_pole scj-filter" data-filter="tags" placeholder="Filter by tag" />
+        <input class="text_pole scj-filter" data-filter="search" placeholder="Full-text search" />
         <select class="text_pole scj-filter" data-filter="sort">
           <option value="desc">Time: newest first</option>
           <option value="asc">Time: oldest first</option>
@@ -143,6 +173,8 @@ function renderFavorites() {
   const characterFilter = (panel.querySelector('[data-filter="character"]')?.value || "").trim().toLowerCase();
   const sessionFilter = (panel.querySelector('[data-filter="session"]')?.value || "").trim().toLowerCase();
   const noteFilter = (panel.querySelector('[data-filter="note"]')?.value || "").trim().toLowerCase();
+  const tagsFilter = (panel.querySelector('[data-filter="tags"]')?.value || "").trim().toLowerCase();
+  const fullTextFilter = (panel.querySelector('[data-filter="search"]')?.value || "").trim().toLowerCase();
   const sort = panel.querySelector('[data-filter="sort"]')?.value || "desc";
 
   const filtered = getSettings().favorites
@@ -150,9 +182,20 @@ function renderFavorites() {
       const c = (item.session?.characterName || "").toLowerCase();
       const s = (item.session?.chatId || "").toLowerCase();
       const n = (item.note || "").toLowerCase();
+      const tags = (Array.isArray(item.tags) ? item.tags : []).join(" ").toLowerCase();
+      const fullTextBlob = [
+        item.selection?.text || "",
+        item.note || "",
+        (item.snapshot?.contextMessages || []).map((m) => m?.mes || "").join("\n"),
+      ]
+        .join("\n")
+        .toLowerCase();
+
       return (!characterFilter || c.includes(characterFilter)) &&
         (!sessionFilter || s.includes(sessionFilter)) &&
-        (!noteFilter || n.includes(noteFilter));
+        (!noteFilter || n.includes(noteFilter)) &&
+        (!tagsFilter || tags.includes(tagsFilter)) &&
+        (!fullTextFilter || fullTextBlob.includes(fullTextFilter));
     })
     .sort((a, b) => {
       const at = new Date(a.createdAt).getTime();
@@ -161,7 +204,7 @@ function renderFavorites() {
     });
 
   if (!filtered.length) {
-    list.innerHTML = `<div class="scj-empty">No favorites yet. Select text in chat and click Save.</div>`;
+    list.innerHTML = `<div class="scj-empty">No favorites found.</div>`;
     return;
   }
 
@@ -187,14 +230,19 @@ function renderCard(item) {
   const charName = escapeHtml(item.session?.characterName || "Unknown Character");
   const contextHtml = renderContext(item.snapshot?.contextMessages || []);
   const charSnapshot = escapeHtml(JSON.stringify(item.snapshot?.characterCard || {}, null, 2));
+  const tags = Array.isArray(item.tags) && item.tags.length
+    ? `<div class="scj-tags">${item.tags.map((t) => `<span class="scj-tag">${escapeHtml(t)}</span>`).join("")}</div>`
+    : "";
 
   return `
     <article class="scj-card" data-id="${escapeHtml(item.id)}">
       <div class="scj-meta">${charName} | ${createdAt} | Chat: ${chatId}</div>
       <blockquote>${escapeHtml(quote)}</blockquote>
+      ${tags}
       ${note}
       <div class="scj-actions">
         <button type="button" class="menu_button" data-action="toggle">View Snapshot</button>
+        <button type="button" class="menu_button" data-action="jump">Jump to Msg</button>
         <button type="button" class="menu_button menu_button_danger" data-action="delete">Delete</button>
       </div>
       <details class="scj-details">
@@ -245,6 +293,11 @@ function onListAction(event) {
   if (action === "toggle") {
     const details = card?.querySelector(".scj-details");
     if (details) details.open = !details.open;
+    return;
+  }
+
+  if (action === "jump") {
+    jumpToOriginalMessage(id);
   }
 }
 
@@ -335,12 +388,8 @@ function onBubbleClick(event) {
     hideSelectionBubble();
     return;
   }
-  if (action === "fav") {
-    saveCurrentSelection(false);
-  }
-  if (action === "highlight") {
-    saveCurrentSelection(true);
-  }
+  if (action === "fav") saveCurrentSelection(false);
+  if (action === "highlight") saveCurrentSelection(true);
   hideSelectionBubble();
   window.getSelection()?.removeAllRanges();
 }
@@ -348,6 +397,9 @@ function onBubbleClick(event) {
 function saveCurrentSelection(shouldHighlight) {
   if (!selectionState) return;
   const note = prompt("Add a note for this favorite (optional):", "") ?? "";
+  const tagsText = prompt("Add tags (optional, comma separated):", "") ?? "";
+  const tags = parseTags(tagsText);
+
   const ctx = getContext();
   const chat = Array.isArray(ctx?.chat) ? ctx.chat : [];
   const idx = clamp(selectionState.messageIndex, 0, Math.max(0, chat.length - 1));
@@ -368,6 +420,7 @@ function saveCurrentSelection(shouldHighlight) {
     id: favoriteId,
     createdAt: new Date().toISOString(),
     note: note.trim(),
+    tags,
     selection: {
       text: selectionState.text,
       messageIndex: idx,
@@ -393,6 +446,40 @@ function saveCurrentSelection(shouldHighlight) {
   saveSettingsDebounced();
   applyHighlightsDebounced();
   renderFavorites();
+}
+
+function jumpToOriginalMessage(favoriteId) {
+  const item = getSettings().favorites.find((f) => f.id === favoriteId);
+  if (!item) return;
+
+  const nowSession = getSessionInfo();
+  if (nowSession.chatKey !== item.session?.chatKey) {
+    alert("This favorite belongs to another chat session. Open that chat first.");
+    return;
+  }
+
+  const idx = item.selection?.messageIndex;
+  if (!Number.isInteger(idx)) return;
+  const mesEl = getChatElements()[idx];
+  if (!mesEl) {
+    alert("Original message is not in current rendered chat.");
+    return;
+  }
+
+  mesEl.scrollIntoView({ behavior: "smooth", block: "center" });
+  mesEl.classList.add("scj-flash");
+  setTimeout(() => mesEl.classList.remove("scj-flash"), 1200);
+}
+
+function parseTags(input) {
+  return Array.from(
+    new Set(
+      String(input || "")
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 function snapshotCharacterCard(ctx) {
@@ -480,7 +567,7 @@ function exportFavorites() {
   const data = {
     module: MODULE_NAME,
     exportedAt: new Date().toISOString(),
-    version: 1,
+    version: 2,
     payload: getSettings(),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
@@ -555,11 +642,11 @@ function escapeHtml(input) {
     .replaceAll("'", "&#39;");
 }
 
-jQuery(() => {
-  try {
-    init();
+bootstrap()
+  .then(() => {
     console.log(`[${MODULE_NAME}] ready`);
-  } catch (error) {
+  })
+  .catch((error) => {
     console.error(`[${MODULE_NAME}] init failed`, error);
-  }
-});
+    alert(`[${MODULE_NAME}] failed to load. Check browser console for details.`);
+  });

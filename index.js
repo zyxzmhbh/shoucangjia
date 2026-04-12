@@ -1,17 +1,21 @@
 const MODULE_NAME = "shoucangjia";
 const PANEL_ID = "scj-panel";
-const FAB_ID = "scj-fab";
 const BUBBLE_ID = "scj-selection-bubble";
 const IMPORT_INPUT_ID = "scj-import-input";
+const SETTINGS_BLOCK_ID = "scj-settings-block";
+const MOBILE_SAVE_ID = "scj-mobile-save";
 
 const DEFAULT_SETTINGS = {
   favorites: [],
   highlightsByChatKey: {},
 };
 
+const IS_TOUCH = "ontouchstart" in window || (navigator?.maxTouchPoints || 0) > 0;
+
 let selectionState = null;
 let observer = null;
 let highlightDebounceTimer = null;
+let selectionSyncTimer = null;
 
 let saveSettingsDebounced = null;
 let extension_settings = null;
@@ -23,10 +27,10 @@ async function importAny(paths) {
       // eslint-disable-next-line no-await-in-loop
       return await import(p);
     } catch {
-      // keep trying next path
+      // continue
     }
   }
-  throw new Error(`Cannot import module from any path: ${paths.join(", ")}`);
+  throw new Error(`Cannot import module from paths: ${paths.join(", ")}`);
 }
 
 async function bootstrap() {
@@ -38,7 +42,7 @@ async function bootstrap() {
   getContext = extModule.getContext;
 
   if (!saveSettingsDebounced || !extension_settings || !getContext) {
-    throw new Error("SillyTavern APIs missing: saveSettingsDebounced/extension_settings/getContext");
+    throw new Error("SillyTavern APIs missing.");
   }
 
   init();
@@ -47,6 +51,7 @@ async function bootstrap() {
 function init() {
   initSettings();
   mountUI();
+  mountSettingsEntry();
   bindSelectionEvents();
   observeChatDom();
   applyHighlightsDebounced();
@@ -57,7 +62,6 @@ function initSettings() {
     extension_settings[MODULE_NAME] = structuredClone(DEFAULT_SETTINGS);
     saveSettingsDebounced();
   }
-
   const current = extension_settings[MODULE_NAME];
   current.favorites = Array.isArray(current.favorites) ? current.favorites : [];
   current.highlightsByChatKey =
@@ -75,35 +79,16 @@ function getChatElements() {
 }
 
 function getSessionInfo(ctx = getContext()) {
-  const characterName = ctx?.name2 || "Unknown Character";
+  const characterName = ctx?.name2 || "未知角色";
   const chatMeta = ctx?.chatMetadata || {};
   const chatId = chatMeta.main_chat || chatMeta.chat_id || chatMeta.file_name || ctx?.chatId || "unknown-chat";
   const groupId = ctx?.groupId ?? null;
   const characterId = ctx?.characterId ?? null;
   const chatKey = JSON.stringify({ characterName, characterId, groupId, chatId });
-  const chatLabel = groupId ? `${characterName} (group:${groupId})` : `${characterName} (${chatId})`;
-
-  return {
-    characterName,
-    characterId,
-    groupId,
-    chatId,
-    chatKey,
-    chatLabel,
-  };
+  return { characterName, characterId, groupId, chatId, chatKey };
 }
 
 function mountUI() {
-  if (!document.getElementById(FAB_ID)) {
-    const fab = document.createElement("button");
-    fab.id = FAB_ID;
-    fab.type = "button";
-    fab.textContent = "Favorites";
-    fab.title = "Open Favorites";
-    fab.addEventListener("click", openPanel);
-    document.body.appendChild(fab);
-  }
-
   if (!document.getElementById(PANEL_ID)) {
     const panel = document.createElement("div");
     panel.id = PANEL_ID;
@@ -122,6 +107,49 @@ function mountUI() {
     });
     panel.querySelector(".scj-list")?.addEventListener("click", onListAction);
   }
+
+  if (!document.getElementById(MOBILE_SAVE_ID)) {
+    const btn = document.createElement("button");
+    btn.id = MOBILE_SAVE_ID;
+    btn.type = "button";
+    btn.textContent = "收藏选中";
+    btn.title = "收藏当前选中的文本";
+    btn.addEventListener("click", () => saveCurrentSelection(false));
+    document.body.appendChild(btn);
+  }
+}
+
+function mountSettingsEntry() {
+  const container = document.getElementById("extensions_settings2");
+  if (!container || document.getElementById(SETTINGS_BLOCK_ID)) return;
+
+  const block = document.createElement("div");
+  block.id = SETTINGS_BLOCK_ID;
+  block.className = "scj-settings-entry";
+  block.innerHTML = `
+    <div class="scj-settings-title">收藏夹</div>
+    <div class="scj-settings-actions">
+      <button type="button" class="menu_button" data-action="open">打开收藏夹</button>
+      <button type="button" class="menu_button" data-action="save">收藏选中</button>
+      <button type="button" class="menu_button" data-action="save-highlight">高亮并收藏</button>
+    </div>
+    <div class="scj-settings-hint">提示：手机长按选中文本后，页面底部会出现“收藏选中”。</div>
+  `;
+  block.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const action = target.dataset.action;
+    if (action === "open") openPanel();
+    if (action === "save") {
+      refreshSelectionState();
+      saveCurrentSelection(false);
+    }
+    if (action === "save-highlight") {
+      refreshSelectionState();
+      saveCurrentSelection(true);
+    }
+  });
+  container.prepend(block);
 }
 
 function panelTemplate() {
@@ -129,22 +157,22 @@ function panelTemplate() {
     <div class="scj-panel-mask"></div>
     <div class="scj-panel-card">
       <div class="scj-panel-header">
-        <h3>Favorites Notebook</h3>
+        <h3>收藏夹</h3>
         <div class="scj-header-actions">
-          <button type="button" class="menu_button scj-export-btn">Export</button>
-          <button type="button" class="menu_button scj-import-btn">Import</button>
-          <button type="button" class="menu_button scj-close-btn">Close</button>
+          <button type="button" class="menu_button scj-export-btn">导出</button>
+          <button type="button" class="menu_button scj-import-btn">导入</button>
+          <button type="button" class="menu_button scj-close-btn">关闭</button>
         </div>
       </div>
       <div class="scj-filters">
-        <input class="text_pole scj-filter" data-filter="character" placeholder="Filter by character" />
-        <input class="text_pole scj-filter" data-filter="session" placeholder="Filter by chat/session ID" />
-        <input class="text_pole scj-filter" data-filter="note" placeholder="Filter by note" />
-        <input class="text_pole scj-filter" data-filter="tags" placeholder="Filter by tag" />
-        <input class="text_pole scj-filter" data-filter="search" placeholder="Full-text search" />
+        <input class="text_pole scj-filter" data-filter="character" placeholder="按角色筛选" />
+        <input class="text_pole scj-filter" data-filter="session" placeholder="按会话ID筛选" />
+        <input class="text_pole scj-filter" data-filter="note" placeholder="按备注筛选" />
+        <input class="text_pole scj-filter" data-filter="tags" placeholder="按标签筛选" />
+        <input class="text_pole scj-filter" data-filter="search" placeholder="全文搜索" />
         <select class="text_pole scj-filter" data-filter="sort">
-          <option value="desc">Time: newest first</option>
-          <option value="asc">Time: oldest first</option>
+          <option value="desc">时间：最新在前</option>
+          <option value="asc">时间：最早在前</option>
         </select>
       </div>
       <div class="scj-list"></div>
@@ -190,7 +218,6 @@ function renderFavorites() {
       ]
         .join("\n")
         .toLowerCase();
-
       return (!characterFilter || c.includes(characterFilter)) &&
         (!sessionFilter || s.includes(sessionFilter)) &&
         (!noteFilter || n.includes(noteFilter)) &&
@@ -204,11 +231,11 @@ function renderFavorites() {
     });
 
   if (!filtered.length) {
-    list.innerHTML = `<div class="scj-empty">No favorites found.</div>`;
+    list.innerHTML = `<div class="scj-empty">暂无收藏。</div>`;
     return;
   }
 
-  const byCharacter = groupBy(filtered, (it) => it.session?.characterName || "Unknown Character");
+  const byCharacter = groupBy(filtered, (it) => it.session?.characterName || "未知角色");
   const sections = Object.entries(byCharacter).map(([characterName, items]) => {
     const cards = items.map(renderCard).join("");
     return `
@@ -224,10 +251,10 @@ function renderFavorites() {
 
 function renderCard(item) {
   const quote = ellipsis(item.selection?.text || "", 140);
-  const note = item.note ? `<div class="scj-note">Note: ${escapeHtml(item.note)}</div>` : "";
+  const note = item.note ? `<div class="scj-note">备注：${escapeHtml(item.note)}</div>` : "";
   const createdAt = formatDate(item.createdAt);
   const chatId = escapeHtml(item.session?.chatId || "unknown-chat");
-  const charName = escapeHtml(item.session?.characterName || "Unknown Character");
+  const charName = escapeHtml(item.session?.characterName || "未知角色");
   const contextHtml = renderContext(item.snapshot?.contextMessages || []);
   const charSnapshot = escapeHtml(JSON.stringify(item.snapshot?.characterCard || {}, null, 2));
   const tags = Array.isArray(item.tags) && item.tags.length
@@ -236,20 +263,20 @@ function renderCard(item) {
 
   return `
     <article class="scj-card" data-id="${escapeHtml(item.id)}">
-      <div class="scj-meta">${charName} | ${createdAt} | Chat: ${chatId}</div>
+      <div class="scj-meta">${charName} | ${createdAt} | 会话: ${chatId}</div>
       <blockquote>${escapeHtml(quote)}</blockquote>
       ${tags}
       ${note}
       <div class="scj-actions">
-        <button type="button" class="menu_button" data-action="toggle">View Snapshot</button>
-        <button type="button" class="menu_button" data-action="jump">Jump to Msg</button>
-        <button type="button" class="menu_button menu_button_danger" data-action="delete">Delete</button>
+        <button type="button" class="menu_button" data-action="toggle">查看快照</button>
+        <button type="button" class="menu_button" data-action="jump">跳转原消息</button>
+        <button type="button" class="menu_button menu_button_danger" data-action="delete">删除</button>
       </div>
       <details class="scj-details">
-        <summary>Context + Character Snapshot</summary>
-        <div class="scj-subtitle">Nearby chat lines (5 above / 5 below)</div>
+        <summary>上下文 + 角色快照</summary>
+        <div class="scj-subtitle">上下 5 条聊天记录</div>
         <div class="scj-context">${contextHtml}</div>
-        <div class="scj-subtitle">Character card snapshot at save time</div>
+        <div class="scj-subtitle">收藏时角色信息快照</div>
         <pre>${charSnapshot}</pre>
       </details>
     </article>
@@ -257,10 +284,10 @@ function renderCard(item) {
 }
 
 function renderContext(messages) {
-  if (!messages.length) return `<div class="scj-empty-context">No context snapshot</div>`;
+  if (!messages.length) return `<div class="scj-empty-context">没有上下文快照</div>`;
   return messages
     .map((m) => {
-      const name = escapeHtml(m.name || (m.is_user ? "You" : "Character"));
+      const name = escapeHtml(m.name || (m.is_user ? "你" : "角色"));
       const text = escapeHtml(m.mes || "");
       return `<div class="scj-context-row"><b>${name}</b>: ${text}</div>`;
     })
@@ -272,13 +299,12 @@ function onListAction(event) {
   if (!(target instanceof HTMLElement)) return;
   const action = target.dataset.action;
   if (!action) return;
-
   const card = target.closest(".scj-card");
   const id = card?.getAttribute("data-id");
   if (!id) return;
 
   if (action === "delete") {
-    if (!confirm("Delete this favorite?")) return;
+    if (!confirm("确认删除这条收藏吗？")) return;
     const settings = getSettings();
     settings.favorites = settings.favorites.filter((it) => it.id !== id);
     for (const key of Object.keys(settings.highlightsByChatKey)) {
@@ -302,44 +328,68 @@ function onListAction(event) {
 }
 
 function bindSelectionEvents() {
-  document.addEventListener("mouseup", onSelectionMaybeChanged);
-  document.addEventListener("touchend", onSelectionMaybeChanged, { passive: true });
-  document.addEventListener("mousedown", hideSelectionBubble);
-  document.addEventListener("scroll", hideSelectionBubble, true);
+  document.addEventListener("selectionchange", scheduleSelectionRefresh);
+  document.addEventListener("mouseup", scheduleSelectionRefresh);
+  document.addEventListener("touchend", scheduleSelectionRefresh, { passive: true });
+  document.addEventListener("scroll", () => {
+    if (!selectionState) hideSelectionBubble();
+  }, true);
+  if (!IS_TOUCH) {
+    document.addEventListener("mousedown", hideSelectionBubble);
+  }
 }
 
-function onSelectionMaybeChanged() {
-  setTimeout(() => {
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-      hideSelectionBubble();
-      return;
-    }
-    const text = selection.toString().trim();
-    if (!text) {
-      hideSelectionBubble();
-      return;
-    }
+function scheduleSelectionRefresh() {
+  clearTimeout(selectionSyncTimer);
+  selectionSyncTimer = setTimeout(refreshSelectionState, IS_TOUCH ? 120 : 10);
+}
 
-    const range = selection.getRangeAt(0);
-    const anchorNode = selection.anchorNode;
-    const anchorEl = anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement;
-    const mesEl = anchorEl?.closest?.(".mes");
-    const chatRoot = document.getElementById("chat");
-    if (!mesEl || !chatRoot?.contains(mesEl)) {
-      hideSelectionBubble();
-      return;
-    }
+function refreshSelectionState() {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    selectionState = null;
+    hideSelectionBubble();
+    hideMobileSave();
+    return;
+  }
 
-    const messageIndex = getMessageIndexFromElement(mesEl);
-    if (messageIndex < 0) {
-      hideSelectionBubble();
-      return;
-    }
+  const text = selection.toString().trim();
+  if (!text) {
+    selectionState = null;
+    hideSelectionBubble();
+    hideMobileSave();
+    return;
+  }
 
-    selectionState = { text, range, messageIndex };
+  const range = selection.getRangeAt(0);
+  const anchorNode = selection.anchorNode;
+  const anchorEl = anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement;
+  const mesEl = anchorEl?.closest?.(".mes");
+  const chatRoot = document.getElementById("chat");
+  if (!mesEl || !chatRoot?.contains(mesEl)) {
+    selectionState = null;
+    hideSelectionBubble();
+    hideMobileSave();
+    return;
+  }
+
+  const messageIndex = getMessageIndexFromElement(mesEl);
+  if (messageIndex < 0) {
+    selectionState = null;
+    hideSelectionBubble();
+    hideMobileSave();
+    return;
+  }
+
+  selectionState = { text, range, messageIndex };
+
+  if (IS_TOUCH) {
+    showMobileSave();
+    hideSelectionBubble();
+  } else {
     showSelectionBubble(range.getBoundingClientRect());
-  }, 0);
+    hideMobileSave();
+  }
 }
 
 function getMessageIndexFromElement(mesEl) {
@@ -348,11 +398,6 @@ function getMessageIndexFromElement(mesEl) {
     const parsed = Number(raw);
     if (Number.isInteger(parsed) && parsed >= 0) return parsed;
   }
-
-  const id = mesEl.getAttribute("id") || "";
-  const maybeNumber = Number(id.replace(/[^\d]/g, ""));
-  if (Number.isInteger(maybeNumber) && maybeNumber >= 0) return maybeNumber;
-
   return getChatElements().indexOf(mesEl);
 }
 
@@ -362,15 +407,15 @@ function showSelectionBubble(rect) {
     bubble = document.createElement("div");
     bubble.id = BUBBLE_ID;
     bubble.innerHTML = `
-      <button type="button" class="menu_button" data-action="fav">Save</button>
-      <button type="button" class="menu_button" data-action="highlight">Highlight + Save</button>
-      <button type="button" class="menu_button" data-action="cancel">Cancel</button>
+      <button type="button" class="menu_button" data-action="fav">收藏</button>
+      <button type="button" class="menu_button" data-action="highlight">高亮并收藏</button>
+      <button type="button" class="menu_button" data-action="cancel">取消</button>
     `;
     bubble.addEventListener("click", onBubbleClick);
     document.body.appendChild(bubble);
   }
 
-  bubble.style.top = `${Math.max(8, rect.top - 42)}px`;
+  bubble.style.top = `${Math.max(8, rect.top - 44)}px`;
   bubble.style.left = `${Math.max(8, rect.left)}px`;
   bubble.classList.add("scj-show");
 }
@@ -379,25 +424,35 @@ function hideSelectionBubble() {
   document.getElementById(BUBBLE_ID)?.classList.remove("scj-show");
 }
 
+function showMobileSave() {
+  document.getElementById(MOBILE_SAVE_ID)?.classList.add("scj-show");
+}
+
+function hideMobileSave() {
+  document.getElementById(MOBILE_SAVE_ID)?.classList.remove("scj-show");
+}
+
 function onBubbleClick(event) {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
   const action = target.dataset.action;
   if (!action) return;
-  if (action === "cancel") {
-    hideSelectionBubble();
-    return;
-  }
+  if (action === "cancel") return hideSelectionBubble();
   if (action === "fav") saveCurrentSelection(false);
   if (action === "highlight") saveCurrentSelection(true);
-  hideSelectionBubble();
-  window.getSelection()?.removeAllRanges();
 }
 
 function saveCurrentSelection(shouldHighlight) {
-  if (!selectionState) return;
-  const note = prompt("Add a note for this favorite (optional):", "") ?? "";
-  const tagsText = prompt("Add tags (optional, comma separated):", "") ?? "";
+  if (!selectionState) {
+    refreshSelectionState();
+    if (!selectionState) {
+      alert("请先在聊天消息里选中文本。");
+      return;
+    }
+  }
+
+  const note = prompt("请输入备注（可留空）", "") ?? "";
+  const tagsText = prompt("请输入标签（可选，英文逗号分隔）", "") ?? "";
   const tags = parseTags(tagsText);
 
   const ctx = getContext();
@@ -415,7 +470,6 @@ function saveCurrentSelection(shouldHighlight) {
     send_date: m?.send_date || null,
   }));
 
-  const characterCard = snapshotCharacterCard(ctx);
   const favorite = {
     id: favoriteId,
     createdAt: new Date().toISOString(),
@@ -427,7 +481,7 @@ function saveCurrentSelection(shouldHighlight) {
     },
     session,
     snapshot: {
-      characterCard,
+      characterCard: snapshotCharacterCard(ctx),
       contextMessages,
     },
   };
@@ -446,52 +500,37 @@ function saveCurrentSelection(shouldHighlight) {
   saveSettingsDebounced();
   applyHighlightsDebounced();
   renderFavorites();
+  hideSelectionBubble();
+  hideMobileSave();
 }
 
 function jumpToOriginalMessage(favoriteId) {
   const item = getSettings().favorites.find((f) => f.id === favoriteId);
   if (!item) return;
-
   const nowSession = getSessionInfo();
   if (nowSession.chatKey !== item.session?.chatKey) {
-    alert("This favorite belongs to another chat session. Open that chat first.");
+    alert("这条收藏属于其他会话，请先切到对应会话。");
     return;
   }
-
   const idx = item.selection?.messageIndex;
   if (!Number.isInteger(idx)) return;
   const mesEl = getChatElements()[idx];
-  if (!mesEl) {
-    alert("Original message is not in current rendered chat.");
-    return;
-  }
-
+  if (!mesEl) return alert("当前页面没有找到原消息。");
   mesEl.scrollIntoView({ behavior: "smooth", block: "center" });
   mesEl.classList.add("scj-flash");
   setTimeout(() => mesEl.classList.remove("scj-flash"), 1200);
 }
 
 function parseTags(input) {
-  return Array.from(
-    new Set(
-      String(input || "")
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-    ),
-  );
+  return Array.from(new Set(String(input || "").split(",").map((t) => t.trim()).filter(Boolean)));
 }
 
 function snapshotCharacterCard(ctx) {
   const characterId = ctx?.characterId;
   const card = Number.isInteger(characterId) && Array.isArray(ctx?.characters) ? ctx.characters[characterId] : null;
   if (!card) {
-    return {
-      name: ctx?.name2 || "Unknown Character",
-      fallback: true,
-    };
+    return { name: ctx?.name2 || "未知角色", fallback: true };
   }
-
   return {
     name: card.name ?? null,
     avatar: card.avatar ?? null,
@@ -523,7 +562,6 @@ function applyHighlightsForCurrentChat() {
   const session = getSessionInfo();
   const highlights = getSettings().highlightsByChatKey[session.chatKey];
   if (!Array.isArray(highlights) || !highlights.length) return;
-
   const messageElements = getChatElements();
   highlights.forEach((h) => {
     const root = messageElements[h.messageIndex]?.querySelector(".mes_text");
@@ -567,7 +605,7 @@ function exportFavorites() {
   const data = {
     module: MODULE_NAME,
     exportedAt: new Date().toISOString(),
-    version: 2,
+    version: 3,
     payload: getSettings(),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
@@ -588,7 +626,7 @@ function importFavorites(event) {
       const parsed = JSON.parse(String(reader.result || "{}"));
       const incoming = parsed?.payload;
       if (!incoming || typeof incoming !== "object") throw new Error("invalid payload");
-      if (!confirm("Import will overwrite current favorites. Continue?")) return;
+      if (!confirm("导入将覆盖当前收藏，确认继续？")) return;
       extension_settings[MODULE_NAME] = {
         favorites: Array.isArray(incoming.favorites) ? incoming.favorites : [],
         highlightsByChatKey:
@@ -601,7 +639,7 @@ function importFavorites(event) {
       renderFavorites();
     } catch (error) {
       console.error(`[${MODULE_NAME}] import failed`, error);
-      alert("Import failed: invalid file format.");
+      alert("导入失败：文件格式不正确。");
     } finally {
       input.value = "";
     }
@@ -624,7 +662,7 @@ function clamp(n, min, max) {
 
 function ellipsis(text, maxLen) {
   if (text.length <= maxLen) return text;
-  return `${text.slice(0, maxLen - 3)}...`;
+  return `${text.slice(0, maxLen - 1)}…`;
 }
 
 function formatDate(iso) {
@@ -648,5 +686,5 @@ bootstrap()
   })
   .catch((error) => {
     console.error(`[${MODULE_NAME}] init failed`, error);
-    alert(`[${MODULE_NAME}] failed to load. Check browser console for details.`);
+    alert(`[${MODULE_NAME}] 加载失败，请查看控制台报错。`);
   });

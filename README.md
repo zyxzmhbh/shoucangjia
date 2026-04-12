@@ -1,54 +1,39 @@
-# Shoucangjia Favorites (SillyTavern Extension)
+# 收藏夹（SillyTavern 扩展）
 
-A SillyTavern extension for highlighting and saving chat text with snapshots.
+用于在酒馆聊天中收藏高亮句子，并保存可回看的上下文快照。
 
-## Features
+## 已实现
 
-- Select text in a message, then click `Save` or `Highlight + Save`
-- Optional note input when saving
-- Favorites panel with filters:
-  - character name
-  - chat/session ID
-  - note text
-  - tags
-  - full-text search
-- Saved snapshot includes:
-  - selected text
-  - save time
-  - session identifiers
-  - character card snapshot
-  - nearby chat context (5 above + 5 below)
-- Favorites still viewable even if original card/chat is deleted
-- Jump back to original message when you are in the same session
-- Export/Import JSON for backup
+- 扩展页入口名称：`收藏夹`
+- 在扩展页可直接点击：
+  - `打开收藏夹`
+  - `收藏选中`
+  - `高亮并收藏`
+- 手机端长按选中文本后，页面底部会出现 `收藏选中` 按钮
+- 收藏时可填备注、标签
+- 收藏夹支持：
+  - 角色筛选
+  - 会话筛选
+  - 备注筛选
+  - 标签筛选
+  - 全文搜索
+  - 跳转原消息（同会话）
+- 快照保存：
+  - 角色卡信息
+  - 上下各 5 条聊天记录
+  - 收藏时间、备注、标签、会话标识
 
-## Install (Git URL)
+## 安装
 
-Use this repo URL in SillyTavern Extension installer:
+在 SillyTavern 的扩展安装里填：
 
 ```text
 https://github.com/zyxzmhbh/shoucangjia.git
 ```
 
-## Usage
+## 手机端使用说明
 
-1. Select text inside chat.
-2. Click `Save` or `Highlight + Save`.
-3. Add note (optional).
-4. Open `Favorites` button at bottom-right to browse snapshots.
-
-## Storage
-
-- Data is stored in `extension_settings.shoucangjia`.
-- This is persisted by SillyTavern settings storage, not plain browser-only localStorage.
-- Export JSON regularly as backup.
-
-## Known Limits
-
-- Highlight re-apply is text-match based and may miss complex cross-node selections.
-- Future improvements: batch actions, compression/archiving.
-
-## Troubleshooting
-
-- If install succeeds but extension fails to load, remove and reinstall from Git URL once.
-- If still failing, open browser console and report the first red error line.
+1. 在聊天区长按文本进行系统选中。
+2. 不需要关闭系统复制菜单。
+3. 页面底部出现 `收藏选中` 后点击即可保存。
+4. 去扩展页 `收藏夹` 打开面板查看。

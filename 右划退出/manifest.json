@@ -1,0 +1,10 @@
+{
+  "display_name": "右划退出",
+  "author": "zyxzmhbh",
+  "version": "0.1.0",
+  "loading_order": 10,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "homePage": "https://github.com/zyxzmhbh/youhua"
+}

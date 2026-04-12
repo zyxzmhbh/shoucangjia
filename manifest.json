@@ -1,11 +1,10 @@
 {
-  "display_name": "收藏夹",
+  "display_name": "\u53f3\u5212\u9000\u51fa",
   "author": "zyxzmhbh",
-  "version": "0.1.0",
-  "loading_order": 9,
+  "version": "0.2.0",
+  "loading_order": 10,
   "requires": [],
   "optional": [],
   "js": "index.js",
-  "css": "style.css",
-  "homePage": "https://github.com/zyxzmhbh/shoucangjia"
+  "homePage": "https://github.com/zyxzmhbh/youhua"
 }

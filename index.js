@@ -2,6 +2,7 @@ const MODULE_NAME = "shoucangjia";
 const SETTINGS_BLOCK_ID = "scj-settings-block";
 const IMPORT_INPUT_ID = "scj-import-input";
 const BUBBLE_ID = "scj-selection-bubble";
+const MODAL_ID = "scj-collector-modal";
 
 const DEFAULT_SETTINGS = {
   favorites: [],
@@ -14,7 +15,6 @@ let selectionState = null;
 let observer = null;
 let highlightDebounceTimer = null;
 let selectionSyncTimer = null;
-let selectionPollTimer = null;
 
 let saveSettingsDebounced = null;
 let extension_settings = null;
@@ -48,8 +48,10 @@ function init() {
   initSettings();
   mountSelectionBubble();
   mountSettingsEntry();
+  mountCollectorModal();
   bindSelectionEvents();
   observeChatDom();
+  mountMessageFavoriteButtons();
   applyHighlightsDebounced();
 }
 
@@ -75,7 +77,7 @@ function getChatElements() {
 }
 
 function getSessionInfo(ctx = getContext()) {
-  const characterName = ctx?.name2 || "unknown-character";
+  const characterName = ctx?.name2 || "未知角色";
   const chatMeta = ctx?.chatMetadata || {};
   const chatId = chatMeta.main_chat || chatMeta.chat_id || chatMeta.file_name || ctx?.chatId || "unknown-chat";
   const groupId = ctx?.groupId ?? null;
@@ -95,6 +97,102 @@ function mountSelectionBubble() {
   `;
   bubble.addEventListener("click", onBubbleClick);
   document.body.appendChild(bubble);
+}
+
+function mountCollectorModal() {
+  if (document.getElementById(MODAL_ID)) return;
+  const modal = document.createElement("div");
+  modal.id = MODAL_ID;
+  modal.innerHTML = `
+    <div class="scj-modal-mask"></div>
+    <div class="scj-modal-card">
+      <div class="scj-modal-title">收藏本条消息</div>
+      <div class="scj-modal-tip">先在下方文本框中选中片段，再点“收藏”或“高亮并收藏”。</div>
+      <textarea class="text_pole scj-modal-text" rows="10"></textarea>
+      <input class="text_pole scj-modal-note" placeholder="备注（可选）" />
+      <input class="text_pole scj-modal-tags" placeholder="标签（可选，英文逗号分隔）" />
+      <div class="scj-modal-actions">
+        <button type="button" class="menu_button" data-action="save">收藏选中</button>
+        <button type="button" class="menu_button" data-action="highlight">高亮并收藏选中</button>
+        <button type="button" class="menu_button menu_button_danger" data-action="close">关闭</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  modal.querySelector(".scj-modal-mask")?.addEventListener("click", closeCollectorModal);
+  modal.addEventListener("click", onModalAction);
+}
+
+function openCollectorModal(messageIndex) {
+  const modal = document.getElementById(MODAL_ID);
+  if (!modal) return;
+  const ctx = getContext();
+  const chat = Array.isArray(ctx?.chat) ? ctx.chat : [];
+  const msg = chat[messageIndex];
+  if (!msg) {
+    alert("没有找到这条消息。");
+    return;
+  }
+
+  modal.setAttribute("data-message-index", String(messageIndex));
+  const textarea = modal.querySelector(".scj-modal-text");
+  const noteInput = modal.querySelector(".scj-modal-note");
+  const tagsInput = modal.querySelector(".scj-modal-tags");
+  if (textarea instanceof HTMLTextAreaElement) {
+    textarea.value = String(msg?.mes || "");
+    textarea.focus();
+  }
+  if (noteInput instanceof HTMLInputElement) noteInput.value = "";
+  if (tagsInput instanceof HTMLInputElement) tagsInput.value = "";
+
+  modal.classList.add("scj-open");
+}
+
+function closeCollectorModal() {
+  document.getElementById(MODAL_ID)?.classList.remove("scj-open");
+}
+
+function onModalAction(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const action = target.dataset.action;
+  if (!action) return;
+
+  if (action === "close") {
+    closeCollectorModal();
+    return;
+  }
+
+  const modal = document.getElementById(MODAL_ID);
+  if (!modal) return;
+  const messageIndex = Number(modal.getAttribute("data-message-index"));
+  if (!Number.isInteger(messageIndex)) return;
+
+  const textarea = modal.querySelector(".scj-modal-text");
+  const noteInput = modal.querySelector(".scj-modal-note");
+  const tagsInput = modal.querySelector(".scj-modal-tags");
+  if (!(textarea instanceof HTMLTextAreaElement)) return;
+  const note = noteInput instanceof HTMLInputElement ? noteInput.value : "";
+  const tagsText = tagsInput instanceof HTMLInputElement ? tagsInput.value : "";
+  const tags = parseTags(tagsText);
+
+  const start = textarea.selectionStart ?? 0;
+  const end = textarea.selectionEnd ?? 0;
+  const selected = start < end ? textarea.value.slice(start, end).trim() : "";
+  if (!selected) {
+    alert("请先在文本框里选中要收藏的片段。");
+    return;
+  }
+
+  saveFavoriteByPayload({
+    text: selected,
+    messageIndex,
+    note,
+    tags,
+    shouldHighlight: action === "highlight",
+  });
+  closeCollectorModal();
 }
 
 function mountSettingsEntry() {
@@ -117,14 +215,14 @@ function mountSettingsEntry() {
         </div>
       </div>
       <div class="scj-filters">
-        <input class="text_pole scj-filter" data-filter="character" placeholder="按角色筛选" />
-        <input class="text_pole scj-filter" data-filter="session" placeholder="按会话ID筛选" />
-        <input class="text_pole scj-filter" data-filter="note" placeholder="按备注筛选" />
-        <input class="text_pole scj-filter" data-filter="tags" placeholder="按标签筛选" />
+        <input class="text_pole scj-filter" data-filter="character" placeholder="角色" />
+        <input class="text_pole scj-filter" data-filter="session" placeholder="会话ID" />
+        <input class="text_pole scj-filter" data-filter="note" placeholder="备注" />
+        <input class="text_pole scj-filter" data-filter="tags" placeholder="标签" />
         <input class="text_pole scj-filter" data-filter="search" placeholder="全文搜索" />
         <select class="text_pole scj-filter" data-filter="sort">
-          <option value="desc">时间：最新在前</option>
-          <option value="asc">时间：最早在前</option>
+          <option value="desc">最新</option>
+          <option value="asc">最早</option>
         </select>
       </div>
       <div class="scj-list"></div>
@@ -138,7 +236,6 @@ function mountSettingsEntry() {
     const action = target.dataset.action;
     if (action === "toggle") {
       toggleDrawer(block);
-      return;
     }
   });
 
@@ -312,37 +409,23 @@ function bindSelectionEvents() {
   document.addEventListener("selectionchange", scheduleSelectionRefresh);
   document.addEventListener("mouseup", scheduleSelectionRefresh);
   document.addEventListener("touchend", scheduleSelectionRefresh, { passive: true });
-  document.addEventListener("keyup", scheduleSelectionRefresh);
-  document.addEventListener("scroll", scheduleSelectionRefresh, true);
-  selectionPollTimer = window.setInterval(() => refreshSelectionState(true), 700);
 }
 
 function scheduleSelectionRefresh() {
   clearTimeout(selectionSyncTimer);
-  selectionSyncTimer = setTimeout(() => refreshSelectionState(false), IS_TOUCH ? 120 : 10);
+  selectionSyncTimer = setTimeout(refreshSelectionState, IS_TOUCH ? 120 : 10);
 }
 
-function refreshSelectionState(fromPoll) {
+function refreshSelectionState() {
   const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    if (!fromPoll) {
-      selectionState = null;
-      hideSelectionBubble();
-    }
-    return;
-  }
-
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
   const text = selection.toString().trim();
   if (!text) return;
-
   const range = selection.getRangeAt(0);
   const mesEl = findMessageElement(selection, range);
-  const chatRoot = document.getElementById("chat");
-  if (!mesEl || !chatRoot?.contains(mesEl)) return;
-
+  if (!mesEl) return;
   const messageIndex = getMessageIndexFromElement(mesEl);
   if (messageIndex < 0) return;
-
   selectionState = { text, range, messageIndex };
   showSelectionBubble(range.getBoundingClientRect());
 }
@@ -351,29 +434,15 @@ function findMessageElement(selection, range) {
   const candidates = [];
   const pushNode = (node) => {
     if (!node) return;
-    if (node instanceof Element) {
-      candidates.push(node);
-    } else if (node.parentElement) {
-      candidates.push(node.parentElement);
-    }
+    if (node instanceof Element) candidates.push(node);
+    else if (node.parentElement) candidates.push(node.parentElement);
   };
-
   pushNode(selection.anchorNode);
   pushNode(selection.focusNode);
   pushNode(range.commonAncestorContainer);
-
   for (const c of candidates) {
     const mes = c.closest?.(".mes");
     if (mes) return mes;
-  }
-
-  const all = getChatElements();
-  for (const mes of all) {
-    try {
-      if (range.intersectsNode(mes)) return mes;
-    } catch {
-      // continue
-    }
   }
   return null;
 }
@@ -418,26 +487,34 @@ function onBubbleClick(event) {
     hideSelectionBubble();
     return;
   }
-  if (action === "fav") saveCurrentSelection(false);
-  if (action === "highlight") saveCurrentSelection(true);
+  if (action === "fav") {
+    saveFavoriteByPayload({
+      text: selectionState?.text || "",
+      messageIndex: selectionState?.messageIndex,
+      note: prompt("请输入备注（可留空）", "") ?? "",
+      tags: parseTags(prompt("请输入标签（可选，英文逗号分隔）", "") ?? ""),
+      shouldHighlight: false,
+    });
+  }
+  if (action === "highlight") {
+    saveFavoriteByPayload({
+      text: selectionState?.text || "",
+      messageIndex: selectionState?.messageIndex,
+      note: prompt("请输入备注（可留空）", "") ?? "",
+      tags: parseTags(prompt("请输入标签（可选，英文逗号分隔）", "") ?? ""),
+      shouldHighlight: true,
+    });
+  }
 }
 
-function saveCurrentSelection(shouldHighlight) {
-  if (!selectionState?.text) {
-    refreshSelectionState(false);
-    if (!selectionState?.text) {
-      alert("请先在聊天里选中文本。");
-      return;
-    }
+function saveFavoriteByPayload({ text, messageIndex, note, tags, shouldHighlight }) {
+  if (!text || !Number.isInteger(messageIndex)) {
+    alert("没有可收藏的文本。");
+    return;
   }
-
-  const note = prompt("请输入备注（可留空）", "") ?? "";
-  const tagsText = prompt("请输入标签（可选，英文逗号分隔）", "") ?? "";
-  const tags = parseTags(tagsText);
-
   const ctx = getContext();
   const chat = Array.isArray(ctx?.chat) ? ctx.chat : [];
-  const idx = clamp(selectionState.messageIndex, 0, Math.max(0, chat.length - 1));
+  const idx = clamp(messageIndex, 0, Math.max(0, chat.length - 1));
   const session = getSessionInfo(ctx);
   const settings = getSettings();
 
@@ -453,10 +530,10 @@ function saveCurrentSelection(shouldHighlight) {
   const favorite = {
     id: favoriteId,
     createdAt: new Date().toISOString(),
-    note: note.trim(),
-    tags,
+    note: String(note || "").trim(),
+    tags: Array.isArray(tags) ? tags : [],
     selection: {
-      text: selectionState.text,
+      text: String(text),
       messageIndex: idx,
     },
     session,
@@ -474,7 +551,7 @@ function saveCurrentSelection(shouldHighlight) {
     settings.highlightsByChatKey[session.chatKey].push({
       favoriteId,
       messageIndex: idx,
-      text: selectionState.text,
+      text: String(text),
     });
   }
   saveSettingsDebounced();
@@ -482,6 +559,29 @@ function saveCurrentSelection(shouldHighlight) {
   renderFavorites();
   selectionState = null;
   hideSelectionBubble();
+}
+
+function mountMessageFavoriteButtons() {
+  const messages = getChatElements();
+  messages.forEach((mesEl) => {
+    if (!(mesEl instanceof HTMLElement)) return;
+    if (mesEl.querySelector(".scj-msg-fav-btn")) return;
+
+    const toolbar = mesEl.querySelector(".mes_buttons, .mes_buttons_wrapper, .mes_header .right_menu");
+    if (!toolbar) return;
+
+    const btn = document.createElement("div");
+    btn.className = "mes_button fa-solid fa-bookmark scj-msg-fav-btn";
+    btn.title = "收藏本条消息";
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const idx = getMessageIndexFromElement(mesEl);
+      if (!Number.isInteger(idx) || idx < 0) return;
+      openCollectorModal(idx);
+    });
+    toolbar.appendChild(btn);
+  });
 }
 
 function jumpToOriginalMessage(favoriteId) {
@@ -526,7 +626,10 @@ function observeChatDom() {
   const chat = document.getElementById("chat");
   if (!chat) return;
   observer?.disconnect();
-  observer = new MutationObserver(() => applyHighlightsDebounced());
+  observer = new MutationObserver(() => {
+    mountMessageFavoriteButtons();
+    applyHighlightsDebounced();
+  });
   observer.observe(chat, { childList: true, subtree: true });
 }
 
@@ -583,7 +686,7 @@ function exportFavorites() {
   const data = {
     module: MODULE_NAME,
     exportedAt: new Date().toISOString(),
-    version: 5,
+    version: 6,
     payload: getSettings(),
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });

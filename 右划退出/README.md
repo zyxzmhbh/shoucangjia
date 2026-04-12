@@ -1,19 +1,18 @@
-# 右划退出（SillyTavern 扩展）
+# Right Swipe Exit (SillyTavern Extension)
 
-## 功能
+## Features
 
-- 在聊天界面中，手指从左向右滑动（右划）时，自动退出当前对话并尝试返回首页/角色列表。
-- 已做防误触处理：在输入框、文本编辑区域里不会触发。
+- In chat view, swipe from left to right to leave current chat and return to home/character list.
+- Anti-mistouch guard: swipe is ignored when gesture starts inside input or editor areas.
 
-## 安装
+## Install
 
-将本文件夹放入 SillyTavern 的扩展目录后，在扩展列表里启用 `右划退出`。
+Put this folder into your SillyTavern extensions directory, then enable `Right Swipe Exit`.
 
-## 说明
+## Back Action Order
 
-- 扩展会按以下顺序执行返回：
-1. 调用已知页面函数（如存在）。
-2. 点击已知“返回/首页/角色列表”按钮（如存在）。
-3. 回退浏览器历史记录（`history.back()`）。
+1. Try known page functions if available.
+2. Try known back/home buttons by selector.
+3. Fallback to `history.back()`.
 
-- 不同酒馆版本按钮 ID 可能不同。如果你发现没有生效，把你当前版本或页面按钮结构发我，我可以继续精准适配。
+If it does not work on your specific ST build, share your version and I can adapt the selectors exactly.

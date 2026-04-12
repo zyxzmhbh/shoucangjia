@@ -68,8 +68,7 @@ function onTouchEnd(event) {
 
 function isTypingTarget(target) {
   if (!target) return false;
-  if (target.closest("input, textarea, [contenteditable='true'], .ProseMirror")) return true;
-  return false;
+  return Boolean(target.closest("input, textarea, [contenteditable='true'], .ProseMirror"));
 }
 
 function isInChatArea(target) {
@@ -86,10 +85,10 @@ function goHome() {
   if (tryClickKnownButtons()) return;
   if (window.history.length > 1) {
     window.history.back();
-    notify("已执行右划返回");
+    notify("Right swipe: back action sent.");
     return;
   }
-  notify("未找到首页入口，请告诉我你的酒馆版本，我给你定向适配。", true);
+  notify("No home/back entry found. Please share your ST version for exact adaptation.", true);
 }
 
 function tryCallKnownFunctions() {
@@ -109,7 +108,7 @@ function tryCallKnownFunctions() {
     if (typeof fn !== "function") continue;
     try {
       fn();
-      notify("已执行右划返回");
+      notify("Right swipe: back action sent.");
       return true;
     } catch {
       // try next
@@ -135,19 +134,19 @@ function tryClickKnownButtons() {
     const el = document.querySelector(selector);
     if (!(el instanceof HTMLElement)) continue;
     el.click();
-    notify("已执行右划返回");
+    notify("Right swipe: back action sent.");
     return true;
   }
 
-  const textHints = ["首页", "返回", "角色", "主界面", "back", "home", "character"];
+  const textHints = ["home", "back", "character", "main menu"];
   const clickable = Array.from(document.querySelectorAll("button, a, [role='button'], .menu_button"));
   for (const el of clickable) {
     const text = (el.textContent || "").trim().toLowerCase();
     if (!text) continue;
-    if (!textHints.some((hint) => text.includes(hint.toLowerCase()))) continue;
+    if (!textHints.some((hint) => text.includes(hint))) continue;
     if (!(el instanceof HTMLElement)) continue;
     el.click();
-    notify("已执行右划返回");
+    notify("Right swipe: back action sent.");
     return true;
   }
   return false;
@@ -156,9 +155,9 @@ function tryClickKnownButtons() {
 function notify(msg, isError = false) {
   if (typeof window.toastr !== "undefined") {
     if (isError) {
-      window.toastr.warning(msg, "右划退出");
+      window.toastr.warning(msg, "Right Swipe Exit");
     } else {
-      window.toastr.success(msg, "右划退出");
+      window.toastr.success(msg, "Right Swipe Exit");
     }
     return;
   }

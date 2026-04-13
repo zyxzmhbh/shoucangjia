@@ -1,4 +1,4 @@
-# 收藏夹（SillyTavern 扩展）
+﻿# 收藏夹（SillyTavern 扩展）
 
 ## 当前方案
 

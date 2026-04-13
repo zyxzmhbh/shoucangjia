@@ -1,4 +1,4 @@
-const MODULE_NAME = "shoucangjia";
+﻿const MODULE_NAME = "shoucangjia";
 const SETTINGS_BLOCK_ID = "scj-settings-block";
 const IMPORT_INPUT_ID = "scj-import-input";
 const BUBBLE_ID = "scj-selection-bubble";
@@ -107,13 +107,12 @@ function mountCollectorModal() {
     <div class="scj-modal-mask"></div>
     <div class="scj-modal-card">
       <div class="scj-modal-title">收藏本条消息</div>
-      <div class="scj-modal-tip">先在下方文本框中选中片段，再点“收藏”或“高亮并收藏”。</div>
+      <div class="scj-modal-tip">先在下方文本框中选中片段，再点“收藏”完成。</div>
       <textarea class="text_pole scj-modal-text" rows="10"></textarea>
       <input class="text_pole scj-modal-note" placeholder="备注（可选）" />
       <input class="text_pole scj-modal-tags" placeholder="标签（可选，英文逗号分隔）" />
       <div class="scj-modal-actions">
-        <button type="button" class="menu_button" data-action="save">收藏选中</button>
-        <button type="button" class="menu_button" data-action="highlight">高亮并收藏选中</button>
+        <button type="button" class="menu_button" data-action="save">收藏</button>
         <button type="button" class="menu_button menu_button_danger" data-action="close">关闭</button>
       </div>
     </div>
@@ -190,7 +189,7 @@ function onModalAction(event) {
     messageIndex,
     note,
     tags,
-    shouldHighlight: action === "highlight",
+    shouldHighlight: false,
   });
   closeCollectorModal();
 }
@@ -571,8 +570,10 @@ function mountMessageFavoriteButtons() {
     if (!toolbar) return;
 
     const btn = document.createElement("div");
-    btn.className = "mes_button fa-solid fa-bookmark scj-msg-fav-btn";
+    btn.className = "mes_button scj-msg-fav-btn";
     btn.title = "收藏本条消息";
+    btn.setAttribute("aria-label", "收藏本条消息");
+    btn.innerHTML = '<span class="scj-bookmark-icon" aria-hidden="true"></span>';
     btn.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -580,10 +581,25 @@ function mountMessageFavoriteButtons() {
       if (!Number.isInteger(idx) || idx < 0) return;
       openCollectorModal(idx);
     });
-    toolbar.appendChild(btn);
+
+    const children = Array.from(toolbar.children);
+    const pencil = children.find((el) =>
+      el instanceof HTMLElement &&
+      (el.classList.contains("fa-pencil") ||
+        el.classList.contains("fa-pen") ||
+        el.classList.contains("mes_edit") ||
+        (el.getAttribute("title") || "").includes("编辑")),
+    );
+
+    if (pencil instanceof HTMLElement) {
+      toolbar.insertBefore(btn, pencil);
+    } else if (toolbar.lastElementChild) {
+      toolbar.insertBefore(btn, toolbar.lastElementChild);
+    } else {
+      toolbar.appendChild(btn);
+    }
   });
 }
-
 function jumpToOriginalMessage(favoriteId) {
   const item = getSettings().favorites.find((f) => f.id === favoriteId);
   if (!item) return;
@@ -769,3 +785,9 @@ bootstrap()
     console.error(`[${MODULE_NAME}] init failed`, error);
     alert(`[${MODULE_NAME}] 加载失败，请查看控制台报错。`);
   });
+
+
+
+
+
+

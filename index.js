@@ -595,18 +595,19 @@ function mountMessageFavoriteButtons() {
 function jumpToOriginalMessage(favoriteId) {
   const item = getSettings().favorites.find((f) => f.id === favoriteId);
   if (!item) return;
-  const nowSession = getSessionInfo();
-  if (nowSession.chatKey !== item.session?.chatKey) {
-    alert("这条收藏属于其他会话，请先切到对应会话。");
-    return;
-  }
+
+  const rawChatId = String(item.session?.chatId || "");
+  const atIndex = rawChatId.lastIndexOf("@");
+  const shortSessionId = atIndex >= 0 ? rawChatId.slice(atIndex) : rawChatId || "unknown-chat";
   const idx = item.selection?.messageIndex;
-  if (!Number.isInteger(idx)) return;
-  const mesEl = getChatElements()[idx];
-  if (!mesEl) return alert("当前页面没有找到原消息。");
-  mesEl.scrollIntoView({ behavior: "smooth", block: "center" });
-  mesEl.classList.add("scj-flash");
-  setTimeout(() => mesEl.classList.remove("scj-flash"), 1200);
+  const floorText = Number.isInteger(idx) ? `#${idx + 1}` : "未知";
+  const message = `楼层：${floorText}\n可复制会话ID：${shortSessionId}`;
+
+  if (prompt(message, shortSessionId) === null) return;
+
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(shortSessionId).catch(() => {});
+  }
 }
 
 function parseTags(input) {

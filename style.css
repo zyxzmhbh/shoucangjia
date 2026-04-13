@@ -1,9 +1,9 @@
 ﻿.scj-drawer {
-  margin: 4px 0 8px;
+  margin: 2px 0 8px;
 }
 
 .inline-drawer + .scj-drawer {
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .scj-drawer + .inline-drawer {
@@ -194,7 +194,7 @@
 .scj-modal-card {
   position: absolute;
   left: 50%;
-  top: 14%;
+  top: 20%;
   transform: translateX(-50%);
   width: min(92vw, 680px);
   background: var(--SmartThemeBlurTintColor, #222);
@@ -259,4 +259,5 @@
   width: auto;
   height: auto;
 }
+
 

@@ -1,5 +1,13 @@
 ﻿.scj-drawer {
-  margin-bottom: 0;
+  margin: 4px 0 8px;
+}
+
+.inline-drawer + .scj-drawer {
+  margin-top: 4px;
+}
+
+.scj-drawer + .inline-drawer {
+  margin-top: 8px;
 }
 
 .scj-drawer-toggle {
@@ -186,7 +194,7 @@
 .scj-modal-card {
   position: absolute;
   left: 50%;
-  top: 10%;
+  top: 14%;
   transform: translateX(-50%);
   width: min(92vw, 680px);
   background: var(--SmartThemeBlurTintColor, #222);
@@ -209,12 +217,14 @@
 }
 
 .scj-modal-text {
-  min-height: 180px;
+  min-height: 240px;
+  max-height: 52vh;
 }
 
 .scj-modal-actions {
   display: flex;
   gap: 8px;
+  justify-content: center;
 }
 
 @media (max-width: 900px) {
@@ -244,24 +254,9 @@
 }
 
 .scj-bookmark-icon {
-  position: relative;
-  width: 12px;
-  height: 14px;
-  border: 1.6px solid currentColor;
-  border-radius: 2px 2px 0 0;
-  border-bottom: none;
-  display: inline-block;
+  font-size: 1em;
+  line-height: 1;
+  width: auto;
+  height: auto;
 }
 
-.scj-bookmark-icon::after {
-  content: "";
-  position: absolute;
-  left: -1.6px;
-  right: -1.6px;
-  bottom: -5.4px;
-  height: 6px;
-  border-left: 1.6px solid currentColor;
-  border-right: 1.6px solid currentColor;
-  clip-path: polygon(0 0, 50% 62%, 100% 0, 100% 100%, 0 100%);
-  background: transparent;
-}

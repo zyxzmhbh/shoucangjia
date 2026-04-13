@@ -108,7 +108,7 @@ function mountCollectorModal() {
     <div class="scj-modal-card">
       <div class="scj-modal-title">收藏本条消息</div>
       <div class="scj-modal-tip">先在下方文本框中选中片段，再点“收藏”完成。</div>
-      <textarea class="text_pole scj-modal-text" rows="10"></textarea>
+      <textarea class="text_pole scj-modal-text" rows="12"></textarea>
       <input class="text_pole scj-modal-note" placeholder="备注（可选）" />
       <input class="text_pole scj-modal-tags" placeholder="标签（可选，英文逗号分隔）" />
       <div class="scj-modal-actions">
@@ -215,14 +215,9 @@ function mountSettingsEntry() {
       </div>
       <div class="scj-filters">
         <input class="text_pole scj-filter" data-filter="character" placeholder="角色" />
-        <input class="text_pole scj-filter" data-filter="session" placeholder="会话ID" />
         <input class="text_pole scj-filter" data-filter="note" placeholder="备注" />
         <input class="text_pole scj-filter" data-filter="tags" placeholder="标签" />
         <input class="text_pole scj-filter" data-filter="search" placeholder="全文搜索" />
-        <select class="text_pole scj-filter" data-filter="sort">
-          <option value="desc">最新</option>
-          <option value="asc">最早</option>
-        </select>
       </div>
       <div class="scj-list"></div>
       <input id="${IMPORT_INPUT_ID}" type="file" accept="application/json" hidden />
@@ -276,16 +271,14 @@ function renderFavorites() {
   if (!list) return;
 
   const characterFilter = (block.querySelector('[data-filter="character"]')?.value || "").trim().toLowerCase();
-  const sessionFilter = (block.querySelector('[data-filter="session"]')?.value || "").trim().toLowerCase();
   const noteFilter = (block.querySelector('[data-filter="note"]')?.value || "").trim().toLowerCase();
   const tagsFilter = (block.querySelector('[data-filter="tags"]')?.value || "").trim().toLowerCase();
   const fullTextFilter = (block.querySelector('[data-filter="search"]')?.value || "").trim().toLowerCase();
-  const sort = block.querySelector('[data-filter="sort"]')?.value || "desc";
+  const sort = "desc";
 
   const filtered = getSettings().favorites
     .filter((item) => {
       const c = (item.session?.characterName || "").toLowerCase();
-      const s = (item.session?.chatId || "").toLowerCase();
       const n = (item.note || "").toLowerCase();
       const tags = (Array.isArray(item.tags) ? item.tags : []).join(" ").toLowerCase();
       const fullTextBlob = [
@@ -296,7 +289,6 @@ function renderFavorites() {
         .join("\n")
         .toLowerCase();
       return (!characterFilter || c.includes(characterFilter)) &&
-        (!sessionFilter || s.includes(sessionFilter)) &&
         (!noteFilter || n.includes(noteFilter)) &&
         (!tagsFilter || tags.includes(tagsFilter)) &&
         (!fullTextFilter || fullTextBlob.includes(fullTextFilter));
@@ -573,7 +565,7 @@ function mountMessageFavoriteButtons() {
     btn.className = "mes_button scj-msg-fav-btn";
     btn.title = "收藏本条消息";
     btn.setAttribute("aria-label", "收藏本条消息");
-    btn.innerHTML = '<span class="scj-bookmark-icon" aria-hidden="true"></span>';
+    btn.innerHTML = '<i class="fa-regular fa-bookmark scj-bookmark-icon" aria-hidden="true"></i>';
     btn.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -785,9 +777,4 @@ bootstrap()
     console.error(`[${MODULE_NAME}] init failed`, error);
     alert(`[${MODULE_NAME}] 加载失败，请查看控制台报错。`);
   });
-
-
-
-
-
 

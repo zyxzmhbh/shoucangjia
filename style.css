@@ -231,6 +231,21 @@
   .scj-filters {
     grid-template-columns: 1fr;
   }
+
+  .scj-modal-card {
+    top: 50%;
+    transform: translate(-50%, -50%);
+    height: min(78vh, 760px);
+    height: min(78dvh, 760px);
+    max-height: calc(100vh - 48px);
+    max-height: calc(100dvh - 48px);
+  }
+
+  .scj-modal-text {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+  }
 }
 
 .scj-header-actions .menu_button,

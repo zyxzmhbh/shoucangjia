@@ -233,13 +233,13 @@
   }
 
   .scj-modal-card {
-    top: 11vh;
-    top: 11dvh;
+    top: 7vh;
+    top: 7dvh;
     transform: translateX(-50%);
-    height: min(84vh, 760px);
-    height: min(84dvh, 760px);
-    max-height: calc(89vh - 24px);
-    max-height: calc(89dvh - 24px);
+    height: min(86vh, 760px);
+    height: min(86dvh, 760px);
+    max-height: calc(93vh - 24px);
+    max-height: calc(93dvh - 24px);
   }
 
   .scj-modal-text {

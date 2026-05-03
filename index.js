@@ -108,7 +108,7 @@ function mountCollectorModal() {
     <div class="scj-modal-card">
       <div class="scj-modal-title">收藏本条消息</div>
       <div class="scj-modal-tip">先在下方文本框中选中片段，再点“收藏”完成。</div>
-      <textarea class="text_pole scj-modal-text" rows="12"></textarea>
+      <textarea class="text_pole scj-modal-text" rows="12" readonly></textarea>
       <input class="text_pole scj-modal-note" placeholder="备注（可选）" />
       <input class="text_pole scj-modal-tags" placeholder="标签（可选，英文逗号分隔）" />
       <div class="scj-modal-actions">
@@ -140,7 +140,6 @@ function openCollectorModal(messageIndex) {
   const tagsInput = modal.querySelector(".scj-modal-tags");
   if (textarea instanceof HTMLTextAreaElement) {
     textarea.value = String(msg?.mes || "");
-    textarea.focus();
   }
   if (noteInput instanceof HTMLInputElement) noteInput.value = "";
   if (tagsInput instanceof HTMLInputElement) tagsInput.value = "";

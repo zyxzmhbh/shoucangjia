@@ -48,10 +48,10 @@ function init() {
   initSettings();
   mountSelectionBubble();
   mountSettingsEntry();
+  mountOptionsMenuEntry();
   mountCollectorModal();
   bindSelectionEvents();
   observeChatDom();
-  mountMessageFavoriteButtons();
   applyHighlightsDebounced();
 }
 
@@ -123,7 +123,7 @@ function mountCollectorModal() {
   modal.addEventListener("click", onModalAction);
 }
 
-function openCollectorModal(messageIndex) {
+function openCollectorModal(messageIndex, viewState = null) {
   const modal = document.getElementById(MODAL_ID);
   if (!modal) return;
   const ctx = getContext();
@@ -145,6 +145,12 @@ function openCollectorModal(messageIndex) {
   if (tagsInput instanceof HTMLInputElement) tagsInput.value = "";
 
   modal.classList.add("scj-open");
+
+  if (textarea instanceof HTMLTextAreaElement) {
+    requestAnimationFrame(() => {
+      positionTextareaFromView(textarea, viewState);
+    });
+  }
 }
 
 function closeCollectorModal() {
@@ -244,6 +250,32 @@ function mountSettingsEntry() {
   block.querySelector(".scj-list")?.addEventListener("click", onListAction);
 
   container.prepend(block);
+}
+
+function mountOptionsMenuEntry() {
+  const options = document.querySelector("#options .options-content");
+  if (!options || document.getElementById("option_scj_open_collector")) return;
+
+  const anchor = document.getElementById("option_new_bookmark");
+  const entry = document.createElement("a");
+  entry.id = "option_scj_open_collector";
+  entry.innerHTML = `
+    <i class="fa-lg fa-solid fa-bookmark"></i>
+    <span>收藏夹</span>
+  `;
+  entry.addEventListener("click", (event) => {
+    event.preventDefault();
+    openCollectorFromViewport();
+    document.getElementById("options")?.style?.setProperty("display", "none");
+  });
+
+  if (anchor?.nextSibling) {
+    options.insertBefore(entry, anchor.nextSibling);
+  } else if (anchor) {
+    options.appendChild(entry);
+  } else {
+    options.prepend(entry);
+  }
 }
 
 function toggleDrawer(block) {
@@ -497,6 +529,68 @@ function onBubbleClick(event) {
   }
 }
 
+function openCollectorFromViewport() {
+  const viewState = getViewportMessageState();
+  if (!viewState || !Number.isInteger(viewState.messageIndex) || viewState.messageIndex < 0) {
+    alert("当前屏幕里没有可收藏的消息。");
+    return;
+  }
+  openCollectorModal(viewState.messageIndex, viewState);
+}
+
+function getViewportMessageState() {
+  const chat = document.getElementById("chat");
+  const messages = getChatElements();
+  if (!chat || !messages.length) return null;
+
+  const chatRect = chat.getBoundingClientRect();
+  const anchorY = clamp(chatRect.top + Math.min(36, chatRect.height * 0.12), chatRect.top + 8, chatRect.bottom - 8);
+
+  let fallback = null;
+  for (const mesEl of messages) {
+    if (!(mesEl instanceof HTMLElement)) continue;
+    const textEl = mesEl.querySelector(".mes_text") || mesEl;
+    const rect = textEl.getBoundingClientRect();
+    const visibleTop = Math.max(rect.top, chatRect.top);
+    const visibleBottom = Math.min(rect.bottom, chatRect.bottom);
+    const visibleHeight = visibleBottom - visibleTop;
+    if (visibleHeight <= 8) continue;
+
+    const messageIndex = getMessageIndexFromElement(mesEl);
+    const ratio = clamp((Math.max(anchorY, visibleTop) - rect.top) / Math.max(rect.height, 1), 0, 1);
+    const state = { messageIndex, ratio };
+
+    if (!fallback || visibleHeight > fallback.visibleHeight) {
+      fallback = { ...state, visibleHeight };
+    }
+    if (rect.top <= anchorY && rect.bottom >= anchorY) {
+      return state;
+    }
+  }
+
+  return fallback ? { messageIndex: fallback.messageIndex, ratio: fallback.ratio } : null;
+}
+
+function positionTextareaFromView(textarea, viewState) {
+  try {
+    textarea.focus({ preventScroll: true });
+  } catch {
+    textarea.focus();
+  }
+
+  if (!viewState || typeof viewState.ratio !== "number") {
+    textarea.scrollTop = 0;
+    textarea.setSelectionRange(0, 0);
+    return;
+  }
+
+  const value = textarea.value || "";
+  const offset = clamp(Math.floor(value.length * clamp(viewState.ratio, 0, 1)), 0, value.length);
+  textarea.setSelectionRange(offset, offset);
+  const maxScroll = Math.max(0, textarea.scrollHeight - textarea.clientHeight);
+  textarea.scrollTop = maxScroll * clamp(viewState.ratio, 0, 1);
+}
+
 function saveFavoriteByPayload({ text, messageIndex, note, tags, shouldHighlight }) {
   if (!text || !Number.isInteger(messageIndex)) {
     alert("没有可收藏的文本。");
@@ -551,46 +645,6 @@ function saveFavoriteByPayload({ text, messageIndex, note, tags, shouldHighlight
   hideSelectionBubble();
 }
 
-function mountMessageFavoriteButtons() {
-  const messages = getChatElements();
-  messages.forEach((mesEl) => {
-    if (!(mesEl instanceof HTMLElement)) return;
-    if (mesEl.querySelector(".scj-msg-fav-btn")) return;
-
-    const toolbar = mesEl.querySelector(".mes_buttons, .mes_buttons_wrapper, .mes_header .right_menu");
-    if (!toolbar) return;
-
-    const btn = document.createElement("div");
-    btn.className = "mes_button scj-msg-fav-btn";
-    btn.title = "收藏本条消息";
-    btn.setAttribute("aria-label", "收藏本条消息");
-    btn.innerHTML = '<i class="fa-regular fa-bookmark scj-bookmark-icon" aria-hidden="true"></i>';
-    btn.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const idx = getMessageIndexFromElement(mesEl);
-      if (!Number.isInteger(idx) || idx < 0) return;
-      openCollectorModal(idx);
-    });
-
-    const children = Array.from(toolbar.children);
-    const pencil = children.find((el) =>
-      el instanceof HTMLElement &&
-      (el.classList.contains("fa-pencil") ||
-        el.classList.contains("fa-pen") ||
-        el.classList.contains("mes_edit") ||
-        (el.getAttribute("title") || "").includes("编辑")),
-    );
-
-    if (pencil instanceof HTMLElement) {
-      toolbar.insertBefore(btn, pencil);
-    } else if (toolbar.lastElementChild) {
-      toolbar.insertBefore(btn, toolbar.lastElementChild);
-    } else {
-      toolbar.appendChild(btn);
-    }
-  });
-}
 function jumpToOriginalMessage(favoriteId) {
   const item = getSettings().favorites.find((f) => f.id === favoriteId);
   if (!item) return;
@@ -635,7 +689,6 @@ function observeChatDom() {
   if (!chat) return;
   observer?.disconnect();
   observer = new MutationObserver(() => {
-    mountMessageFavoriteButtons();
     applyHighlightsDebounced();
   });
   observer.observe(chat, { childList: true, subtree: true });

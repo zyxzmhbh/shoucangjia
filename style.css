@@ -170,10 +170,6 @@
   transition: outline-color 0.2s ease;
 }
 
-.scj-msg-fav-btn {
-  opacity: 0.9;
-}
-
 #scj-collector-modal {
   display: none;
   position: fixed;
@@ -262,18 +258,4 @@
 .scj-modal-actions {
   flex-wrap: nowrap;
 }
-
-.scj-msg-fav-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.scj-bookmark-icon {
-  font-size: 1em;
-  line-height: 1;
-  width: auto;
-  height: auto;
-}
-
 
